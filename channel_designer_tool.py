@@ -1,10 +1,16 @@
 """
 Channel Designer Tool for Hydro Suite
 Trapezoidal channel cross-section generator with SWMM integration
-Version 1.0 - 2025
+Version 2.0 - January 2025
 
 STANDALONE SCRIPT VERSION
 Repository: https://github.com/Joeywoody124/hydro-suite-standalone
+
+Changelog v2.0:
+- Added GIS Layer Import tab for loading channels from vector layers
+- Supports import from sample_channels.gpkg and similar layers
+- Added Manning's n and slope fields for capacity calculations
+- Added capacity (Q) calculation using Manning's equation
 """
 
 import os
@@ -18,15 +24,17 @@ from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QMessageBox, QScrollArea, QFrame, QGroupBox, QDoubleSpinBox,
     QSpinBox, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
-    QTextEdit, QTabWidget, QFileDialog, QCheckBox
+    QTextEdit, QTabWidget, QFileDialog, QCheckBox, QComboBox
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QFont, QPixmap, QPainter, QPen, QBrush
 
+from qgis.core import QgsProject, QgsVectorLayer, QgsWkbTypes
+
 # Import our shared components
 from hydro_suite_interface import HydroToolInterface, LayerSelectionMixin
 from shared_widgets import (
-    DirectorySelector, ProgressLogger, ValidationPanel
+    LayerFieldSelector, DirectorySelector, ProgressLogger, ValidationPanel
 )
 
 
@@ -34,22 +42,27 @@ class ChannelGeometry:
     """Class to handle trapezoidal channel geometry calculations"""
     
     def __init__(self, depth: float, bottom_width: float, left_slope: float, 
-                 right_slope: float, ref_elevation: float = 0.0):
+                 right_slope: float, ref_elevation: float = 0.0,
+                 mannings_n: float = 0.035, channel_slope: float = 0.005):
         """
         Initialize channel geometry
         
         Args:
-            depth: Channel depth
-            bottom_width: Bottom width
+            depth: Channel depth (ft)
+            bottom_width: Bottom width (ft)
             left_slope: Left side slope (horizontal:1 vertical)
             right_slope: Right side slope (horizontal:1 vertical)
-            ref_elevation: Reference bottom elevation
+            ref_elevation: Reference bottom elevation (ft)
+            mannings_n: Manning's roughness coefficient
+            channel_slope: Channel bed slope (ft/ft)
         """
         self.depth = depth
         self.bottom_width = bottom_width
         self.left_slope = left_slope
         self.right_slope = right_slope
         self.ref_elevation = ref_elevation
+        self.mannings_n = mannings_n
+        self.channel_slope = channel_slope
         
     def calculate_points(self) -> List[Dict[str, float]]:
         """Calculate the four corner points of the trapezoidal channel"""
@@ -116,12 +129,24 @@ class ChannelGeometry:
         # Hydraulic radius
         hydraulic_radius = area / wetted_perimeter if wetted_perimeter > 0 else 0
         
+        # Calculate velocity and capacity using Manning's equation
+        if self.mannings_n > 0 and self.channel_slope > 0 and hydraulic_radius > 0:
+            velocity = (1.49 / self.mannings_n) * (hydraulic_radius ** (2.0/3.0)) * (self.channel_slope ** 0.5)
+            capacity = velocity * area
+        else:
+            velocity = 0.0
+            capacity = 0.0
+        
         return {
             'top_width': top_width,
             'area': area,
             'wetted_perimeter': wetted_perimeter,
             'hydraulic_radius': hydraulic_radius,
-            'side_slopes': f"{self.left_slope}:1 / {self.right_slope}:1"
+            'side_slopes': f"{self.left_slope}:1 / {self.right_slope}:1",
+            'velocity': velocity,
+            'capacity': capacity,
+            'mannings_n': self.mannings_n,
+            'channel_slope': self.channel_slope
         }
 
 
@@ -160,7 +185,6 @@ class ChannelVisualization(QWidget):
         min_elev = min(p['elevation'] for p in points)
         max_elev = max(p['elevation'] for p in points)
         
-        # Add some padding
         offset_range = max_offset - min_offset
         elev_range = max_elev - min_elev
         
@@ -170,8 +194,6 @@ class ChannelVisualization(QWidget):
         # Scale to fit widget
         scale_x = width / (offset_range * 1.2)
         scale_y = height / (elev_range * 1.2)
-        
-        # Use same scale for both axes to maintain proportions
         scale = min(scale_x, scale_y)
         
         # Center the drawing
@@ -191,23 +213,18 @@ class ChannelVisualization(QWidget):
         
         # Draw the trapezoidal shape
         if len(screen_points) >= 4:
-            # Order points for drawing: left top -> left bottom -> right bottom -> right top
-            left_top = screen_points[0]  # Leftmost point
-            left_bottom = None
-            right_bottom = None
-            right_top = screen_points[-1]  # Rightmost point
+            left_top = screen_points[0]
+            right_top = screen_points[-1]
             
-            # Find bottom points (lowest elevation)
             bottom_points = [p for p in points if abs(p['elevation'] - min_elev) < 0.001]
             if len(bottom_points) >= 2:
                 bottom_screen = [(center_x + (p['offset'] - (min_offset + max_offset) / 2) * scale,
                                 center_y - (p['elevation'] - (min_elev + max_elev) / 2) * scale)
                                for p in bottom_points]
-                bottom_screen.sort(key=lambda p: p[0])  # Sort by x coordinate
+                bottom_screen.sort(key=lambda p: p[0])
                 left_bottom = bottom_screen[0]
                 right_bottom = bottom_screen[-1]
                 
-                # Draw filled trapezoid
                 from qgis.PyQt.QtGui import QPolygonF
                 from qgis.PyQt.QtCore import QPointF
                 
@@ -219,11 +236,10 @@ class ChannelVisualization(QWidget):
                 ])
                 painter.drawPolygon(polygon)
         
-        # Draw grid
+        # Draw grid lines
         painter.setPen(QPen(Qt.gray, 1))
-        # Draw center lines
-        painter.drawLine(int(center_x), 20, int(center_x), self.height() - 20)  # Vertical center
-        painter.drawLine(20, int(center_y), self.width() - 20, int(center_y))   # Horizontal center
+        painter.drawLine(int(center_x), 20, int(center_x), self.height() - 20)
+        painter.drawLine(20, int(center_y), self.width() - 20, int(center_y))
         
         # Draw points and labels
         painter.setPen(QPen(Qt.red, 1))
@@ -233,10 +249,7 @@ class ChannelVisualization(QWidget):
         painter.setFont(font)
         
         for i, (point, (x, y)) in enumerate(zip(points, screen_points)):
-            # Draw point
             painter.drawEllipse(int(x)-3, int(y)-3, 6, 6)
-            
-            # Draw label
             label = f"({point['offset']:.1f}, {point['elevation']:.1f})"
             painter.setPen(QPen(Qt.black, 1))
             painter.drawText(int(x) + 5, int(y) - 5, label)
@@ -251,11 +264,11 @@ class ChannelDesignerTool(HydroToolInterface):
         self.name = "Channel Designer"
         self.description = "Design trapezoidal channel cross-sections for hydraulic modeling"
         self.category = "Hydraulic Design"
-        self.version = "1.0"
+        self.version = "2.0"
         self.author = "Hydro Suite"
         
         # Tool properties
-        self.channels = []  # List of designed channels
+        self.channels = []
         self.current_geometry = None
         
         # GUI components
@@ -272,19 +285,33 @@ class ChannelDesignerTool(HydroToolInterface):
         self.right_slope_spin = None
         self.ref_elevation_spin = None
         self.channel_id_edit = None
+        self.mannings_n_spin = None
+        self.channel_slope_spin = None
+        
+        # GIS layer import controls
+        self.layer_selector = None
+        self.field_channel_id = None
+        self.field_depth = None
+        self.field_bottom_width = None
+        self.field_side_slope = None
+        self.field_mannings_n = None
+        self.field_channel_slope = None
         
     def create_gui(self, parent_widget: QWidget) -> QWidget:
         """Create the Channel Designer GUI with tabbed interface"""
-        # Create tab widget
         tab_widget = QTabWidget(parent_widget)
         
-        # Design tab
+        # Design tab (manual entry)
         design_tab = self.create_design_tab()
-        tab_widget.addTab(design_tab, "Design")
+        tab_widget.addTab(design_tab, "Manual Design")
         
-        # Batch tab
+        # GIS Layer Import tab (NEW)
+        gis_tab = self.create_gis_import_tab()
+        tab_widget.addTab(gis_tab, "Import from Layer")
+        
+        # Batch CSV tab
         batch_tab = self.create_batch_tab()
-        tab_widget.addTab(batch_tab, "Batch Design")
+        tab_widget.addTab(batch_tab, "Batch CSV")
         
         # Results tab
         results_tab = self.create_results_tab()
@@ -292,9 +319,269 @@ class ChannelDesignerTool(HydroToolInterface):
         
         self.gui_widget = tab_widget
         return tab_widget
+    
+    def create_gis_import_tab(self) -> QWidget:
+        """Create GIS layer import tab"""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        
+        main_widget = QWidget()
+        scroll.setWidget(main_widget)
+        layout = QVBoxLayout(main_widget)
+        
+        # Title
+        title = QLabel("<h3>Import Channels from GIS Layer</h3>")
+        layout.addWidget(title)
+        
+        desc = QLabel(
+            "Import channel geometry from a line layer (e.g., sample_channels.gpkg). "
+            "Map the fields containing channel dimensions and hydraulic parameters."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #666; margin-bottom: 15px;")
+        layout.addWidget(desc)
+        
+        # Layer selection
+        layer_frame = QFrame()
+        layer_frame.setFrameStyle(QFrame.StyledPanel)
+        layer_layout = QVBoxLayout(layer_frame)
+        
+        layer_title = QLabel("<b>Select Channel Layer</b>")
+        layer_layout.addWidget(layer_title)
+        
+        self.layer_selector = LayerFieldSelector(
+            "Channels Layer",
+            default_field="Channel_ID",
+            geometry_type=QgsWkbTypes.LineGeometry
+        )
+        layer_layout.addWidget(self.layer_selector)
+        
+        layout.addWidget(layer_frame)
+        
+        # Field mapping
+        fields_frame = QFrame()
+        fields_frame.setFrameStyle(QFrame.StyledPanel)
+        fields_layout = QVBoxLayout(fields_frame)
+        
+        fields_title = QLabel("<b>Field Mapping</b>")
+        fields_layout.addWidget(fields_title)
+        
+        # Channel ID field
+        id_layout = QHBoxLayout()
+        id_layout.addWidget(QLabel("Channel ID:"))
+        self.field_channel_id = QComboBox()
+        self.field_channel_id.setMinimumWidth(150)
+        id_layout.addWidget(self.field_channel_id)
+        id_layout.addStretch()
+        fields_layout.addLayout(id_layout)
+        
+        # Depth field
+        depth_layout = QHBoxLayout()
+        depth_layout.addWidget(QLabel("Depth (ft):"))
+        self.field_depth = QComboBox()
+        self.field_depth.setMinimumWidth(150)
+        depth_layout.addWidget(self.field_depth)
+        depth_layout.addStretch()
+        fields_layout.addLayout(depth_layout)
+        
+        # Bottom width field
+        bw_layout = QHBoxLayout()
+        bw_layout.addWidget(QLabel("Bottom Width (ft):"))
+        self.field_bottom_width = QComboBox()
+        self.field_bottom_width.setMinimumWidth(150)
+        bw_layout.addWidget(self.field_bottom_width)
+        bw_layout.addStretch()
+        fields_layout.addLayout(bw_layout)
+        
+        # Side slope field
+        ss_layout = QHBoxLayout()
+        ss_layout.addWidget(QLabel("Side Slope (H:1V):"))
+        self.field_side_slope = QComboBox()
+        self.field_side_slope.setMinimumWidth(150)
+        ss_layout.addWidget(self.field_side_slope)
+        ss_layout.addStretch()
+        fields_layout.addLayout(ss_layout)
+        
+        # Manning's n field
+        n_layout = QHBoxLayout()
+        n_layout.addWidget(QLabel("Manning's n:"))
+        self.field_mannings_n = QComboBox()
+        self.field_mannings_n.setMinimumWidth(150)
+        n_layout.addWidget(self.field_mannings_n)
+        n_layout.addStretch()
+        fields_layout.addLayout(n_layout)
+        
+        # Channel slope field
+        slope_layout = QHBoxLayout()
+        slope_layout.addWidget(QLabel("Channel Slope (ft/ft):"))
+        self.field_channel_slope = QComboBox()
+        self.field_channel_slope.setMinimumWidth(150)
+        slope_layout.addWidget(self.field_channel_slope)
+        slope_layout.addStretch()
+        fields_layout.addLayout(slope_layout)
+        
+        layout.addWidget(fields_frame)
+        
+        # Import button
+        import_btn = QPushButton("Import Channels from Layer")
+        import_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 12px;
+                border-radius: 5px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        import_btn.clicked.connect(self.import_from_layer)
+        layout.addWidget(import_btn)
+        
+        # Progress logger
+        self.gis_progress_logger = ProgressLogger()
+        layout.addWidget(self.gis_progress_logger)
+        
+        layout.addStretch()
+        
+        # Connect layer change to field population
+        self.layer_selector.layer_changed.connect(self.on_gis_layer_changed)
+        
+        return scroll
+    
+    def on_gis_layer_changed(self, layer):
+        """Update field combos when GIS layer changes"""
+        # Clear existing items
+        for combo in [self.field_channel_id, self.field_depth, self.field_bottom_width,
+                      self.field_side_slope, self.field_mannings_n, self.field_channel_slope]:
+            combo.clear()
+            combo.addItem("-- Select Field --", None)
+        
+        if not layer or not layer.isValid():
+            return
+        
+        # Get field names
+        field_names = [field.name() for field in layer.fields()]
+        
+        # Add fields to combos
+        for field_name in field_names:
+            for combo in [self.field_channel_id, self.field_depth, self.field_bottom_width,
+                          self.field_side_slope, self.field_mannings_n, self.field_channel_slope]:
+                combo.addItem(field_name, field_name)
+        
+        # Try to auto-select common field names
+        field_map = {
+            self.field_channel_id: ['Channel_ID', 'ChannelID', 'ID', 'NAME', 'Name'],
+            self.field_depth: ['Depth_ft', 'Depth', 'DEPTH', 'D'],
+            self.field_bottom_width: ['Bottom_W_ft', 'Bottom_Width', 'BOTTOM_W', 'BW', 'B'],
+            self.field_side_slope: ['Side_Slope', 'SideSlope', 'SS', 'Z', 'SIDE_SLOPE'],
+            self.field_mannings_n: ['Mannings_n', 'Manning_n', 'N', 'MANNINGS_N'],
+            self.field_channel_slope: ['Slope_ftft', 'Slope', 'SLOPE', 'S', 'CH_SLOPE'],
+        }
+        
+        for combo, candidates in field_map.items():
+            for candidate in candidates:
+                for i in range(combo.count()):
+                    if combo.itemText(i).upper() == candidate.upper():
+                        combo.setCurrentIndex(i)
+                        break
+                else:
+                    continue
+                break
+        
+        self.gis_progress_logger.log(f"Layer loaded: {layer.name()} ({len(field_names)} fields)")
+    
+    def import_from_layer(self):
+        """Import channels from the selected GIS layer"""
+        try:
+            layer = self.layer_selector.get_selected_layer()
+            if not layer or not layer.isValid():
+                QMessageBox.warning(self.gui_widget, "No Layer", 
+                                   "Please select a valid channel layer.")
+                return
+            
+            # Get field mappings
+            id_field = self.field_channel_id.currentData()
+            depth_field = self.field_depth.currentData()
+            bw_field = self.field_bottom_width.currentData()
+            ss_field = self.field_side_slope.currentData()
+            n_field = self.field_mannings_n.currentData()
+            slope_field = self.field_channel_slope.currentData()
+            
+            # Validate required fields
+            if not all([id_field, depth_field, bw_field, ss_field]):
+                QMessageBox.warning(self.gui_widget, "Missing Fields",
+                                   "Please map at least Channel ID, Depth, Bottom Width, and Side Slope fields.")
+                return
+            
+            self.gis_progress_logger.log("Importing channels from layer...")
+            
+            imported = 0
+            errors = 0
+            
+            for feature in layer.getFeatures():
+                try:
+                    channel_id = str(feature[id_field])
+                    depth = float(feature[depth_field] or 0)
+                    bottom_width = float(feature[bw_field] or 0)
+                    side_slope = float(feature[ss_field] or 2.0)
+                    
+                    # Optional fields with defaults
+                    mannings_n = float(feature[n_field]) if n_field and feature[n_field] else 0.035
+                    channel_slope = float(feature[slope_field]) if slope_field and feature[slope_field] else 0.005
+                    
+                    # Validate
+                    if depth <= 0 or bottom_width <= 0:
+                        raise ValueError(f"Invalid depth or width for {channel_id}")
+                    
+                    # Create geometry (symmetric side slopes)
+                    geometry = ChannelGeometry(
+                        depth=depth,
+                        bottom_width=bottom_width,
+                        left_slope=side_slope,
+                        right_slope=side_slope,
+                        ref_elevation=100.0,  # Default reference
+                        mannings_n=mannings_n,
+                        channel_slope=channel_slope
+                    )
+                    
+                    # Add to channels list (replace if exists)
+                    self.channels = [ch for ch in self.channels if ch['id'] != channel_id]
+                    self.channels.append({
+                        'id': channel_id,
+                        'geometry': geometry,
+                        'properties': geometry.calculate_properties()
+                    })
+                    
+                    imported += 1
+                    
+                except Exception as e:
+                    errors += 1
+                    self.gis_progress_logger.log(f"Error importing feature: {str(e)}", "warning")
+            
+            # Update results display
+            self.update_results_display()
+            
+            self.gis_progress_logger.log(
+                f"Import complete: {imported} channels imported, {errors} errors", 
+                "success" if errors == 0 else "warning"
+            )
+            
+            QMessageBox.information(
+                self.gui_widget, "Import Complete",
+                f"Imported {imported} channels from layer.\n"
+                f"Errors: {errors}\n\n"
+                "View results in the Results tab."
+            )
+            
+        except Exception as e:
+            self.gis_progress_logger.log(f"Import error: {str(e)}", "error")
+            QMessageBox.critical(self.gui_widget, "Import Error", str(e))
         
     def create_design_tab(self) -> QWidget:
-        """Create the main design tab"""
+        """Create the main manual design tab"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         
@@ -388,12 +675,42 @@ class ChannelDesignerTool(HydroToolInterface):
         elev_layout.addWidget(self.ref_elevation_spin)
         params_layout.addLayout(elev_layout)
         
+        # Hydraulic parameters group
+        hydraulic_group = QGroupBox("Hydraulic Parameters")
+        hydraulic_layout = QVBoxLayout(hydraulic_group)
+        
+        # Manning's n
+        n_layout = QHBoxLayout()
+        n_layout.addWidget(QLabel("Manning's n:"))
+        self.mannings_n_spin = QDoubleSpinBox()
+        self.mannings_n_spin.setRange(0.01, 0.20)
+        self.mannings_n_spin.setValue(0.035)
+        self.mannings_n_spin.setSingleStep(0.005)
+        self.mannings_n_spin.setDecimals(3)
+        n_layout.addWidget(self.mannings_n_spin)
+        hydraulic_layout.addLayout(n_layout)
+        
+        # Channel slope
+        slope_layout = QHBoxLayout()
+        slope_layout.addWidget(QLabel("Channel Slope (ft/ft):"))
+        self.channel_slope_spin = QDoubleSpinBox()
+        self.channel_slope_spin.setRange(0.0001, 0.10)
+        self.channel_slope_spin.setValue(0.005)
+        self.channel_slope_spin.setSingleStep(0.001)
+        self.channel_slope_spin.setDecimals(4)
+        slope_layout.addWidget(self.channel_slope_spin)
+        hydraulic_layout.addLayout(slope_layout)
+        
+        params_layout.addWidget(hydraulic_group)
+        
         # Connect parameter changes to update visualization
         self.depth_spin.valueChanged.connect(self.update_visualization)
         self.bottom_width_spin.valueChanged.connect(self.update_visualization)
         self.left_slope_spin.valueChanged.connect(self.update_visualization)
         self.right_slope_spin.valueChanged.connect(self.update_visualization)
         self.ref_elevation_spin.valueChanged.connect(self.update_visualization)
+        self.mannings_n_spin.valueChanged.connect(self.update_visualization)
+        self.channel_slope_spin.valueChanged.connect(self.update_visualization)
         
         # Buttons
         button_layout = QVBoxLayout()
@@ -420,7 +737,7 @@ class ChannelDesignerTool(HydroToolInterface):
         
         params_layout.addLayout(button_layout)
         
-        # Hydraulic properties
+        # Hydraulic properties display
         props_frame = QFrame()
         props_frame.setFrameStyle(QFrame.StyledPanel)
         props_layout = QVBoxLayout(props_frame)
@@ -429,7 +746,7 @@ class ChannelDesignerTool(HydroToolInterface):
         props_layout.addWidget(props_title)
         
         self.properties_text = QTextEdit()
-        self.properties_text.setMaximumHeight(150)
+        self.properties_text.setMaximumHeight(200)
         self.properties_text.setReadOnly(True)
         props_layout.addWidget(self.properties_text)
         
@@ -459,17 +776,17 @@ class ChannelDesignerTool(HydroToolInterface):
         return scroll
         
     def create_batch_tab(self) -> QWidget:
-        """Create batch design tab"""
+        """Create batch CSV design tab"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # Title
-        title = QLabel("<h3>Batch Channel Design</h3>")
+        title = QLabel("<h3>Batch Channel Design from CSV</h3>")
         layout.addWidget(title)
         
         desc = QLabel(
             "Import multiple channel designs from CSV file. "
-            "CSV format: channel_id, depth, bottom_width, left_slope, right_slope, ref_elevation"
+            "CSV columns: channel_id, depth, bottom_width, left_slope, right_slope, "
+            "ref_elevation, mannings_n (optional), channel_slope (optional)"
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #666; margin-bottom: 15px;")
@@ -489,12 +806,10 @@ class ChannelDesignerTool(HydroToolInterface):
         file_button_layout.addWidget(browse_btn)
         file_layout.addLayout(file_button_layout)
         
-        # Template download
         template_btn = QPushButton("Download CSV Template")
         template_btn.clicked.connect(self.download_csv_template)
         file_layout.addWidget(template_btn)
         
-        # Process button
         process_btn = QPushButton("Process Batch File")
         process_btn.setStyleSheet("""
             QPushButton {
@@ -513,7 +828,6 @@ class ChannelDesignerTool(HydroToolInterface):
         
         layout.addWidget(file_frame)
         
-        # Progress logger
         self.progress_logger = ProgressLogger()
         layout.addWidget(self.progress_logger)
         
@@ -525,15 +839,15 @@ class ChannelDesignerTool(HydroToolInterface):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # Title
         title = QLabel("<h3>Channel Design Results</h3>")
         layout.addWidget(title)
         
-        # Results table
+        # Results table with capacity
         self.results_table = QTableWidget()
         self.results_table.setAlternatingRowColors(True)
-        headers = ["Channel ID", "Depth", "Bottom Width", "Left Slope", "Right Slope", 
-                  "Ref Elevation", "Top Width", "Area", "Wetted Perimeter", "Hydraulic Radius"]
+        headers = ["Channel ID", "Depth", "Bottom Width", "Side Slope", 
+                   "Manning's n", "Slope", "Top Width", "Area", "Hyd Radius",
+                   "Velocity (fps)", "Capacity (cfs)"]
         self.results_table.setColumnCount(len(headers))
         self.results_table.setHorizontalHeaderLabels(headers)
         self.results_table.horizontalHeader().setStretchLastSection(True)
@@ -585,22 +899,21 @@ class ChannelDesignerTool(HydroToolInterface):
     def update_visualization(self):
         """Update the channel visualization and properties"""
         try:
-            # Get current parameters
             depth = self.depth_spin.value()
             bottom_width = self.bottom_width_spin.value()
             left_slope = self.left_slope_spin.value()
             right_slope = self.right_slope_spin.value()
             ref_elevation = self.ref_elevation_spin.value()
+            mannings_n = self.mannings_n_spin.value()
+            channel_slope = self.channel_slope_spin.value()
             
-            # Create geometry
             self.current_geometry = ChannelGeometry(
-                depth, bottom_width, left_slope, right_slope, ref_elevation
+                depth, bottom_width, left_slope, right_slope, ref_elevation,
+                mannings_n, channel_slope
             )
             
-            # Update visualization
             self.visualization.set_geometry(self.current_geometry)
             
-            # Update properties text
             props = self.current_geometry.calculate_properties()
             properties_text = f"""
 <b>Channel Geometry:</b><br>
@@ -613,7 +926,13 @@ class ChannelDesignerTool(HydroToolInterface):
 - Top Width: {props['top_width']:.2f} ft<br>
 - Cross-sectional Area: {props['area']:.2f} sq ft<br>
 - Wetted Perimeter: {props['wetted_perimeter']:.2f} ft<br>
-- Hydraulic Radius: {props['hydraulic_radius']:.3f} ft<br>
+- Hydraulic Radius: {props['hydraulic_radius']:.3f} ft<br><br>
+
+<b>Flow Capacity (Manning's):</b><br>
+- Manning's n: {mannings_n:.3f}<br>
+- Channel Slope: {channel_slope:.4f} ft/ft<br>
+- Velocity: {props['velocity']:.2f} fps<br>
+- <b>Capacity Q: {props['capacity']:.1f} cfs</b>
             """
             self.properties_text.setHtml(properties_text)
             
@@ -632,7 +951,6 @@ class ChannelDesignerTool(HydroToolInterface):
             QMessageBox.warning(self.gui_widget, "Missing ID", "Please enter a Channel ID.")
             return
             
-        # Check for duplicate IDs
         existing_ids = [ch['id'] for ch in self.channels]
         if channel_id in existing_ids:
             reply = QMessageBox.question(
@@ -643,10 +961,8 @@ class ChannelDesignerTool(HydroToolInterface):
             if reply == QMessageBox.No:
                 return
             else:
-                # Remove existing
                 self.channels = [ch for ch in self.channels if ch['id'] != channel_id]
         
-        # Add to list
         channel_data = {
             'id': channel_id,
             'geometry': self.current_geometry,
@@ -654,10 +970,8 @@ class ChannelDesignerTool(HydroToolInterface):
         }
         self.channels.append(channel_data)
         
-        # Update results display
         self.update_results_display()
         
-        # Auto-increment channel ID
         if channel_id.startswith("Channel_"):
             try:
                 num = int(channel_id.split("_")[1])
@@ -670,7 +984,6 @@ class ChannelDesignerTool(HydroToolInterface):
         
     def update_results_display(self):
         """Update the results table and SWMM output"""
-        # Update table
         self.results_table.setRowCount(len(self.channels))
         
         swmm_lines = []
@@ -679,32 +992,28 @@ class ChannelDesignerTool(HydroToolInterface):
             geom = channel['geometry']
             props = channel['properties']
             
-            # Populate table row
             items = [
                 channel['id'],
                 f"{geom.depth:.2f}",
                 f"{geom.bottom_width:.2f}",
                 f"{geom.left_slope:.1f}",
-                f"{geom.right_slope:.1f}",
-                f"{geom.ref_elevation:.2f}",
+                f"{geom.mannings_n:.3f}",
+                f"{geom.channel_slope:.4f}",
                 f"{props['top_width']:.2f}",
                 f"{props['area']:.2f}",
-                f"{props['wetted_perimeter']:.2f}",
-                f"{props['hydraulic_radius']:.3f}"
+                f"{props['hydraulic_radius']:.3f}",
+                f"{props['velocity']:.2f}",
+                f"{props['capacity']:.1f}"
             ]
             
             for col, item in enumerate(items):
                 self.results_table.setItem(row, col, QTableWidgetItem(item))
                 
-            # Add to SWMM output
             swmm_lines.append(f";{channel['id']}")
             swmm_lines.append(geom.get_swmm_format())
-            swmm_lines.append("")  # Blank line
+            swmm_lines.append("")
             
-        # Update SWMM output
         self.swmm_output.setPlainText("\n".join(swmm_lines))
-        
-        # Resize columns
         self.results_table.resizeColumnsToContents()
         
     def browse_batch_file(self):
@@ -718,10 +1027,10 @@ class ChannelDesignerTool(HydroToolInterface):
             
     def download_csv_template(self):
         """Download CSV template file"""
-        template_content = """channel_id,depth,bottom_width,left_slope,right_slope,ref_elevation
-Channel_1,2.0,4.0,3.0,3.0,100.0
-Channel_2,3.0,5.0,2.0,2.0,95.0
-Channel_3,2.5,6.0,4.0,3.0,105.0"""
+        template_content = """channel_id,depth,bottom_width,left_slope,right_slope,ref_elevation,mannings_n,channel_slope
+Channel_1,2.0,4.0,3.0,3.0,100.0,0.035,0.005
+Channel_2,3.0,5.0,2.0,2.0,95.0,0.030,0.008
+Channel_3,2.5,6.0,4.0,3.0,105.0,0.040,0.003"""
         
         file_path, _ = QFileDialog.getSaveFileName(
             self.gui_widget, "Save CSV Template", "channel_template.csv", "CSV files (*.csv)"
@@ -748,7 +1057,6 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                 
                 for row in reader:
                     try:
-                        # Extract parameters
                         channel_id = row['channel_id'].strip()
                         depth = float(row['depth'])
                         bottom_width = float(row['bottom_width'])
@@ -756,23 +1064,24 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                         right_slope = float(row['right_slope'])
                         ref_elevation = float(row['ref_elevation'])
                         
-                        # Validate parameters
+                        # Optional fields
+                        mannings_n = float(row.get('mannings_n', 0.035) or 0.035)
+                        channel_slope = float(row.get('channel_slope', 0.005) or 0.005)
+                        
                         if depth <= 0 or bottom_width <= 0:
                             raise ValueError("Depth and bottom width must be positive")
                         if left_slope < 0 or right_slope < 0:
                             raise ValueError("Slopes must be non-negative")
                             
-                        # Create geometry
-                        geometry = ChannelGeometry(depth, bottom_width, left_slope, right_slope, ref_elevation)
+                        geometry = ChannelGeometry(depth, bottom_width, left_slope, right_slope, 
+                                                  ref_elevation, mannings_n, channel_slope)
                         
-                        # Add to channels list
                         channel_data = {
                             'id': channel_id,
                             'geometry': geometry,
                             'properties': geometry.calculate_properties()
                         }
                         
-                        # Remove existing if duplicate
                         self.channels = [ch for ch in self.channels if ch['id'] != channel_id]
                         self.channels.append(channel_data)
                         
@@ -782,7 +1091,6 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                         errors += 1
                         self.progress_logger.log(f"Error processing {row.get('channel_id', 'unknown')}: {str(e)}", "warning")
                         
-            # Update display
             self.update_results_display()
             
             self.progress_logger.log(f"Batch processing complete: {processed} channels processed, {errors} errors", "success")
@@ -820,14 +1128,13 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                 with open(file_path, 'w', newline='') as f:
                     writer = csv.writer(f)
                     
-                    # Headers
                     writer.writerow([
                         'Channel_ID', 'Depth', 'Bottom_Width', 'Left_Slope', 'Right_Slope',
-                        'Ref_Elevation', 'Top_Width', 'Area', 'Wetted_Perimeter', 'Hydraulic_Radius',
-                        'SWMM_Points'
+                        'Ref_Elevation', 'Mannings_n', 'Channel_Slope', 
+                        'Top_Width', 'Area', 'Wetted_Perimeter', 'Hydraulic_Radius',
+                        'Velocity_fps', 'Capacity_cfs', 'SWMM_Points'
                     ])
                     
-                    # Data
                     for channel in self.channels:
                         geom = channel['geometry']
                         props = channel['properties']
@@ -840,10 +1147,14 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                             geom.left_slope,
                             geom.right_slope,
                             geom.ref_elevation,
+                            geom.mannings_n,
+                            geom.channel_slope,
                             props['top_width'],
                             props['area'],
                             props['wetted_perimeter'],
                             props['hydraulic_radius'],
+                            props['velocity'],
+                            props['capacity'],
                             swmm_points
                         ])
                         
@@ -856,11 +1167,10 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
                 
     def validate_inputs(self) -> Tuple[bool, str]:
         """Validate tool inputs"""
-        # Channel designer doesn't require external inputs
         return True, "Channel designer ready"
         
     def run(self, progress_callback: Optional[Callable[[int, str], None]] = None) -> bool:
-        """Execute tool - not needed for interactive designer"""
+        """Execute tool"""
         if self.channels:
             QMessageBox.information(
                 self.gui_widget, "Design Complete",
@@ -871,6 +1181,6 @@ Channel_3,2.5,6.0,4.0,3.0,105.0"""
         else:
             QMessageBox.information(
                 self.gui_widget, "No Designs",
-                "Please create some channel designs first using the Design tab."
+                "Please create some channel designs first using one of the input tabs."
             )
             return False

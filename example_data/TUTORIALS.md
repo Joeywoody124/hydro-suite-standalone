@@ -2,7 +2,8 @@
 
 **Author**: Joey Woody, PE - J. Bragg Consulting Inc.  
 **Purpose**: Step-by-step tutorials for each Hydro Suite tool using sample data  
-**Last Updated**: January 2025
+**Last Updated**: January 2025  
+**Version**: 2.0.0
 
 ---
 
@@ -12,8 +13,8 @@
 2. [Creating Sample GIS Layers](#creating-sample-gis-layers)
 3. [Tutorial 1: CN Calculator](#tutorial-1-cn-calculator)
 4. [Tutorial 2: Rational C Calculator](#tutorial-2-rational-c-calculator)
-5. [Tutorial 3: TC Calculator](#tutorial-3-tc-calculator)
-6. [Tutorial 4: Channel Designer](#tutorial-4-channel-designer)
+5. [Tutorial 3: TC Calculator (v2.0)](#tutorial-3-tc-calculator-v20)
+6. [Tutorial 4: Channel Designer (v2.0)](#tutorial-4-channel-designer-v20)
 7. [Common Workflows](#common-workflows)
 
 ---
@@ -46,8 +47,10 @@ In QGIS Python Console:
 # Run the sample data generator
 exec(open(r'E:\path\to\hydro-suite-standalone\example_data\create_sample_layers.py').read())
 
-# This creates GeoPackage layers in:
-# Documents/HydroSuite_SampleData/
+# Create the layers
+create_sample_data()
+
+# Files created in: Documents/HydroSuite_SampleData/
 ```
 
 ### Step 2: Verify Layers Created
@@ -59,8 +62,8 @@ The script creates 6 GeoPackage files:
 | `sample_subbasins.gpkg` | Polygon | 5 | Drainage area boundaries |
 | `sample_landuse.gpkg` | Polygon | 10 | Land use/cover polygons |
 | `sample_soils.gpkg` | Polygon | 6 | SSURGO-style soils with HSG |
-| `sample_flowpaths.gpkg` | Line | 9 | TC flow path segments |
-| `sample_channels.gpkg` | Line | 5 | Drainage channels |
+| `sample_flowpaths.gpkg` | Line | 9 | **TC flow path segments (v2.0)** |
+| `sample_channels.gpkg` | Line | 5 | **Channel import data (v2.0)** |
 | `sample_outlets.gpkg` | Point | 6 | Outlet/pour points |
 
 ### Step 3: Load Layers in QGIS
@@ -129,24 +132,6 @@ For coastal areas with A/D, B/D, C/D soils:
 | SB-004 | 23.6 | 86-90 | Industrial |
 | SB-005 | 110.5 | 72-76 | Agricultural |
 
-### Understanding the Output
-
-The tool calculates:
-
-```
-CN_composite = Σ(CN_i × Area_i) / Σ(Area_i)
-
-Where:
-- CN_i = Curve Number for each land use/soil combination
-- Area_i = Area of each polygon from intersection
-```
-
-### Tips
-
-- **Missing Land Use Codes**: If a land use code isn't in the lookup table, it will be flagged in the log
-- **Split HSG**: Use "Undrained" for natural conditions, "Drained" if site has drainage infrastructure
-- **CN Range**: Valid CN values are 30-100. Values outside this range indicate data issues
-
 ---
 
 ## Tutorial 2: Rational C Calculator
@@ -160,7 +145,6 @@ Calculate area-weighted composite Runoff Coefficients (C values) for each subbas
 |-------|-----------|-------------|
 | Subbasins | `Subbasin_ID` | Drainage boundaries |
 | Land Use | `Land_Use` | Land use codes |
-| (Optional) | `Slope_Pct` | Slope field for variable C |
 
 ### Step-by-Step
 
@@ -179,8 +163,6 @@ Choose project-wide slope category:
 - **Flat (0-2%)**: Low slopes, slower runoff
 - **Rolling (2-6%)**: Moderate slopes
 - **Steep (6%+)**: High slopes, faster runoff
-
-Or check **Use Slope Field** and select the slope attribute.
 
 **Step 3: Load Lookup Table**
 
@@ -203,177 +185,219 @@ Or check **Use Slope Field** and select the slope attribute.
 | SB-004 | Rolling | 0.65-0.70 | High runoff (industrial) |
 | SB-005 | Rolling | 0.32-0.38 | Moderate (agriculture) |
 
-### Understanding C Values
-
-| C Range | Runoff Potential | Typical Surfaces |
-|---------|------------------|------------------|
-| 0.00-0.20 | Very Low | Forest, meadow |
-| 0.20-0.40 | Low | Lawns, parks, pasture |
-| 0.40-0.60 | Moderate | Residential |
-| 0.60-0.80 | High | Commercial, industrial |
-| 0.80-1.00 | Very High | Pavement, roofs |
-
-### Rational Method Application
-
-Use the composite C in the Rational Method:
-
-```
-Q = C × i × A
-
-Where:
-- Q = Peak discharge (cfs)
-- C = Runoff coefficient (from this tool)
-- i = Rainfall intensity (in/hr) from IDF curves
-- A = Drainage area (acres)
-```
-
 ---
 
-## Tutorial 3: TC Calculator
+## Tutorial 3: TC Calculator (v2.0)
+
+### What's New in v2.0
+- **Flowpaths layer input** - Uses TR-55 segment-based methodology
+- **Automatic grouping** - Segments grouped by Subbasin_ID
+- **Flow type support** - SHEET, SHALLOW_CONC, CHANNEL, PIPE
+- **Segment detail output** - CSV with individual segment travel times
+- **Comparison methods** - Kirpich, FAA, SCS Lag, Kerby for validation
 
 ### Objective
-Calculate Time of Concentration (Tc) using multiple methods for comparison.
+Calculate Time of Concentration (Tc) using TR-55 segment-based travel times from a flowpaths layer.
 
-### Input Options
+### Input Layer Required
 
-**Option A: Manual Entry**
-Enter flow path parameters directly
+| Layer | Required Fields | Description |
+|-------|-----------------|-------------|
+| Flowpaths | `Subbasin_ID` | Links segment to subbasin |
+| | `Length_ft` | Segment length in feet |
+| | `Slope_Pct` | Slope in percent |
+| | `Mannings_n` | Manning's roughness coefficient |
+| | `Flow_Type` | SHEET, SHALLOW_CONC, CHANNEL, or PIPE |
 
-**Option B: From GIS Layer**
-Use flow path line features with attributes
+### Step-by-Step
 
-### Step-by-Step (Manual Entry)
+**Step 1: Open TC Calculator**
 
-**Step 1: Enter Watershed Parameters**
+1. Open Hydro Suite
+2. Click **Time of Concentration Calculator**
+3. You'll see the Configuration tab
 
-1. Click **Time of Concentration**
-2. Enter:
-   - Flow Length: `2100` ft
-   - Average Slope: `3.2` %
-   - Surface Type: Select from dropdown
+**Step 2: Select Flowpaths Layer**
 
-**Step 2: Select Calculation Methods**
+1. In "Flowpaths Layer" dropdown, select `Sample_flowpaths`
+2. The tool auto-detects common field names
 
-Check methods to calculate:
-- [x] Kirpich (1940)
-- [x] FAA (1965)
-- [x] SCS/NRCS (1972)
-- [x] Kerby
+**Step 3: Map Fields**
 
-**Step 3: Enter Method-Specific Parameters**
+Verify or adjust field mapping:
+- Subbasin ID Field: `Subbasin_ID`
+- Length (ft) Field: `Length_ft`
+- Slope (%) Field: `Slope_Pct`
+- Manning's n Field: `Mannings_n`
+- Flow Type Field: `Flow_Type`
 
-For SCS method:
-- Curve Number: `75`
+**Step 4: Configure Parameters (Optional)**
 
-For Kerby method:
-- Retardance Coefficient: `0.40` (grass)
+Click the **Parameters** tab to adjust:
+- 2-yr 24-hr Rainfall: `3.5` in (SC Lowcountry typical)
+- Default Hydraulic Radius: `1.0` ft
 
-**Step 4: Calculate**
+**Step 5: Select Comparison Methods (Optional)**
 
-1. Click **Calculate Tc**
-2. Compare results from each method
+Click the **Methods** tab to enable:
+- [x] Kirpich - Rural watersheds
+- [x] SCS Lag - NRCS standard
+- [ ] FAA - Urban areas
+- [ ] Kerby - Overland flow only
 
-### Step-by-Step (From GIS Layer)
+**Step 6: Select Output Directory**
 
-**Step 1: Load Flow Path Layer**
+1. Click **Browse...** for Output Directory
+2. Select or create output folder
 
-1. Select Layer: `Sample_flowpaths`
-2. Select Fields:
-   - Length: `Length_ft`
-   - Slope: `Slope_Pct`
-   - Manning's n: `Mannings_n`
+**Step 7: Run Calculation**
 
-**Step 2: Select Subbasin**
+1. Click **Calculate Time of Concentration**
+2. Wait for processing
+3. View results in Results tab
 
-Choose subbasin from dropdown or process all.
+### Understanding Flow Types
 
-**Step 3: Calculate**
+| Flow Type | Method Used | TR-55 Reference |
+|-----------|-------------|-----------------|
+| SHEET | Equation 3-3 | Limited to 300 ft max |
+| SHALLOW_CONC | Velocity method | Figure 3-1 |
+| CHANNEL | Manning's equation | Open channel flow |
+| PIPE | Manning's (full) | Storm pipe flow |
 
-The tool sums segments by flow type:
-- Sheet flow (limited to 100 ft max)
-- Shallow concentrated flow
-- Channel/pipe flow
+### Expected Results (Sample Data)
 
-### Expected Results
+| Subbasin | Segments | Total Length | TC Segment | Kirpich | SCS Lag |
+|----------|----------|--------------|------------|---------|---------|
+| SB-001 | 3 | 2100 ft | 15-20 min | 15 min | 18 min |
+| SB-002 | 3 | 1050 ft | 8-12 min | 9 min | 11 min |
+| SB-003 | 3 | 3600 ft | 25-35 min | 28 min | 32 min |
 
-| Subbasin | Kirpich | FAA | SCS | Recommended |
-|----------|---------|-----|-----|-------------|
-| SB-001 | 15.2 min | 18.5 min | 16.8 min | 17.0 min |
-| SB-002 | 8.5 min | 12.0 min | 10.2 min | 10.0 min |
-| SB-003 | 28.5 min | 35.0 min | 32.1 min | 32.0 min |
+### Output Files
 
-### Method Selection Guide
-
-| Method | Best For | Limitations |
-|--------|----------|-------------|
-| **Kirpich** | Small rural watersheds (<200 ac) | Underestimates urban |
-| **FAA** | Airports, urban areas | Requires C value |
-| **SCS/NRCS** | General use | Requires CN |
-| **Kerby** | Overland flow only | Max 1200 ft length |
+| File | Description |
+|------|-------------|
+| `tc_calculations.csv` | TC summary by subbasin |
+| `tc_segment_details.csv` | Individual segment travel times |
 
 ### Tips
 
-- **Multi-segment paths**: Break flow path into sheet, shallow concentrated, and channel segments
-- **Sheet flow limit**: NRCS limits sheet flow to 100 ft maximum
-- **Use multiple methods**: Compare results and use engineering judgment
+- **Sheet flow limit**: TR-55 limits sheet flow to 300 ft maximum
+- **Manning's n threshold**: n < 0.02 assumed paved for shallow concentrated flow
+- **Use multiple methods**: Compare segment-based TC with whole-watershed methods
+- **Check segment details**: Review `tc_segment_details.csv` to verify each segment
 
 ---
 
-## Tutorial 4: Channel Designer
+## Tutorial 4: Channel Designer (v2.0)
+
+### What's New in v2.0
+- **GIS Layer Import** - Import channels directly from vector layers
+- **Field mapping** - Flexible field assignment for any layer structure
+- **Capacity calculation** - Manning's equation for velocity and Q
+- **Enhanced export** - CSV includes all hydraulic properties
 
 ### Objective
-Design trapezoidal open channels and calculate hydraulic properties using Manning's equation.
+Design trapezoidal open channels and calculate hydraulic properties, with option to import from GIS layers.
 
 ### Input Options
 
-**Option A: Manual Design**
-Enter channel geometry and compute capacity
+| Method | Use Case |
+|--------|----------|
+| Manual Design | Interactive single-channel design |
+| Import from Layer | Bulk import from GIS (e.g., `sample_channels.gpkg`) |
+| Batch CSV | Import from CSV file |
 
-**Option B: From GIS Layer**
-Use channel line features with attributes
+### Step-by-Step: Import from Layer (Recommended)
 
-**Option C: Target Capacity**
-Specify required Q and solve for geometry
+**Step 1: Open Channel Designer**
 
-### Step-by-Step (Manual Design)
+1. Open Hydro Suite
+2. Click **Channel Designer**
+3. Click the **Import from Layer** tab
 
-**Step 1: Enter Channel Geometry**
+**Step 2: Select Channel Layer**
 
-1. Click **Channel Designer**
-2. Enter:
+1. In "Channels Layer", select `Sample_channels`
+2. Fields auto-populate based on common names
+
+**Step 3: Map Fields**
+
+| Field | Sample Layer Field | Required |
+|-------|-------------------|----------|
+| Channel ID | `Channel_ID` | Yes |
+| Depth (ft) | `Depth_ft` | Yes |
+| Bottom Width (ft) | `Bottom_W_ft` | Yes |
+| Side Slope (H:1V) | `Side_Slope` | Yes |
+| Manning's n | `Mannings_n` | No (default 0.035) |
+| Channel Slope (ft/ft) | `Slope_ftft` | No (default 0.005) |
+
+**Step 4: Import Channels**
+
+1. Click **Import Channels from Layer**
+2. Wait for processing
+3. Success message shows count of imported channels
+
+**Step 5: View Results**
+
+1. Click the **Results** tab
+2. Review table with all hydraulic properties:
+   - Depth, Width, Side Slope
+   - Top Width, Area, Hydraulic Radius
+   - **Velocity (fps)** and **Capacity (cfs)**
+
+**Step 6: Export SWMM Format**
+
+1. Copy text from "SWMM Cross-Section Format" box
+2. Or click **Export to CSV** for full data
+
+### Step-by-Step: Manual Design
+
+**Step 1: Open Manual Design Tab**
+
+1. Click **Manual Design** tab
+2. Enter channel parameters:
+   - Channel ID: `CH-001`
+   - Depth: `4.0` ft
    - Bottom Width: `8.0` ft
-   - Side Slope (H:V): `2.0` (2:1 slope)
-   - Design Depth: `4.0` ft
+   - Left/Right Slope: `2.0` (2:1 H:V)
    - Manning's n: `0.035` (grass-lined)
    - Channel Slope: `0.005` ft/ft
 
-**Step 2: Calculate Properties**
+**Step 2: Preview Results**
 
-Click **Calculate** to compute:
-- Flow Area (sq ft)
-- Wetted Perimeter (ft)
-- Hydraulic Radius (ft)
-- Top Width (ft)
-- Velocity (ft/s)
-- Capacity Q (cfs)
+The cross-section preview updates automatically showing:
+- Geometric visualization
+- Calculated properties
+- **Flow Capacity (Q)**
 
-**Step 3: View Cross-Section**
+**Step 3: Add to List**
 
-The tool displays an interactive cross-section diagram showing:
-- Channel geometry
-- Water surface at design depth
-- Freeboard (if specified)
+1. Click **Add to Design List**
+2. Channel appears in Results tab
+3. Channel ID auto-increments
 
-### Expected Results (8 ft bottom, 2:1 slopes, 4 ft depth)
+### Expected Results (Sample Channels)
 
-| Property | Value | Units |
-|----------|-------|-------|
-| Flow Area | 64.0 | sq ft |
-| Wetted Perimeter | 25.89 | ft |
-| Hydraulic Radius | 2.47 | ft |
-| Top Width | 24.0 | ft |
-| Velocity | 5.2 | ft/s |
-| Capacity | 333 | cfs |
+| Channel | Depth | Width | Slope | Velocity | Capacity |
+|---------|-------|-------|-------|----------|----------|
+| CH-001 (Main Outfall) | 4.0 | 8.0 | 0.005 | 5.2 fps | 333 cfs |
+| CH-002 (Collector) | 2.0 | 4.0 | 0.008 | 4.8 fps | 77 cfs |
+| CH-003 (Concrete) | 2.5 | 3.0 | 0.010 | 8.1 fps | 97 cfs |
+| CH-004 (Rip-rap) | 3.0 | 6.0 | 0.012 | 5.5 fps | 149 cfs |
+| CH-005 (Natural) | 3.5 | 10.0 | 0.003 | 3.8 fps | 200 cfs |
+
+### Manning's n Reference
+
+| Channel Type | n Value |
+|--------------|---------|
+| Concrete (smooth) | 0.012-0.014 |
+| Concrete (rough) | 0.015-0.017 |
+| Asphalt | 0.013-0.016 |
+| Grass (short) | 0.025-0.035 |
+| Grass (tall) | 0.035-0.050 |
+| Rip-rap | 0.035-0.045 |
+| Natural stream | 0.040-0.070 |
 
 ### Manning's Equation
 
@@ -388,142 +412,99 @@ Where:
 - S = Channel slope (ft/ft)
 ```
 
-### Trapezoidal Geometry
-
-```
-        ←─── Top Width (T) ───→
-        ╱                      ╲
-       ╱  ←── z:1 side slope    ╲
-      ╱                          ╲
-     ╱____________________________╲
-           ←─ Bottom Width (b) ─→
-
-T = b + 2zd
-A = (b + zd) × d
-P = b + 2d × sqrt(1 + z²)
-```
-
-### Manning's n Reference
-
-| Channel Type | n Value |
-|--------------|---------|
-| Concrete (smooth) | 0.012-0.014 |
-| Concrete (rough) | 0.015-0.017 |
-| Asphalt | 0.013-0.016 |
-| Grass (short) | 0.025-0.035 |
-| Grass (tall) | 0.035-0.050 |
-| Rip-rap | 0.035-0.045 |
-| Natural stream | 0.040-0.070 |
-
-### SWMM Output Format
-
-The tool can export channel data in SWMM-compatible format:
-
-```
-[XSECTIONS]
-;;Link    Shape    Geom1    Geom2    Geom3    Geom4
-CH-001    TRAPEZOIDAL    4.0    8.0    2.0    2.0
-```
-
 ---
 
 ## Common Workflows
 
-### Workflow 1: Pre-Development Analysis
-
-1. Load existing conditions land use and soils
-2. Calculate CN for each subbasin
-3. Calculate Tc for each subbasin
-4. Export results for hydrologic model (SWMM, HEC-HMS)
-
-### Workflow 2: Post-Development Analysis
-
-1. Create proposed land use layer (digitize or modify existing)
-2. Run CN Calculator with proposed conditions
-3. Compare pre vs post CN values
-4. Size detention/retention based on CN increase
-
-### Workflow 3: Channel Sizing
-
-1. Determine design flow (Q) from Rational Method:
-   ```
-   Q = C × i × A
-   ```
-2. Open Channel Designer
-3. Enter target Q and channel constraints
-4. Iterate geometry to achieve required capacity
-5. Check velocity limits (erosion/deposition)
-
-### Workflow 4: Complete Watershed Study
+### Workflow 1: Complete Watershed Analysis
 
 ```
 ┌─────────────────────────────────────────┐
-│  1. Delineate Subbasins                 │
-│     (Manual or from DEM)                │
+│  1. Create/Load Subbasins Layer         │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  2. Overlay Land Use + Soils            │
-│     (Intersection in QGIS)              │
-└─────────────────┬───────────────────────┘
-                  ▼
-┌─────────────────────────────────────────┐
-│  3. Calculate CN (Hydro Suite)          │
+│  2. Run CN Calculator                   │
 │     - Load lookup table                 │
-│     - Handle split HSG                  │
+│     - Handle split HSG if coastal       │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  4. Calculate C (Hydro Suite)           │
+│  3. Run Rational C Calculator           │
 │     - Select slope category             │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  5. Delineate Flow Paths                │
-│     (Manual or from DEM)                │
+│  4. Create Flowpaths Layer (manually)   │
+│     - Digitize segments per subbasin    │
+│     - Assign Flow_Type, Length, Slope   │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  6. Calculate Tc (Hydro Suite)          │
-│     - Multi-method comparison           │
-│     - Select appropriate value          │
+│  5. Run TC Calculator v2.0              │
+│     - Load flowpaths layer              │
+│     - Map fields                        │
+│     - Compare with Kirpich/SCS          │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  7. Design Channels (Hydro Suite)       │
-│     - Size for design storm             │
-│     - Check velocities                  │
+│  6. Design Channels                     │
+│     - Import from layer or manual       │
+│     - Check capacity vs design Q        │
 └─────────────────┬───────────────────────┘
                   ▼
 ┌─────────────────────────────────────────┐
-│  8. Export to H&H Model                 │
+│  7. Export to H&H Model                 │
 │     (SWMM, HEC-HMS, etc.)               │
 └─────────────────────────────────────────┘
 ```
+
+### Workflow 2: Creating Flowpaths Layer
+
+To create a flowpaths layer for TC Calculator:
+
+1. **Digitize flow paths** in QGIS for each subbasin
+2. **Add required fields**:
+   ```
+   Subbasin_ID (text) - e.g., "SB-001"
+   Length_ft (double) - measured or from geometry
+   Slope_Pct (double) - from DEM or survey
+   Mannings_n (double) - based on surface type
+   Flow_Type (text) - SHEET, SHALLOW_CONC, CHANNEL, PIPE
+   ```
+3. **Break into segments** by flow type (TR-55 requirement)
+4. **Sheet flow max 300 ft** per TR-55
+
+### Workflow 3: Channel Capacity Check
+
+1. Run Rational Method: `Q = C × i × A`
+2. Import channels to Channel Designer
+3. Compare design Q to calculated Capacity
+4. Adjust channel dimensions if capacity insufficient
 
 ---
 
 ## Troubleshooting
 
-### "Land use code not found"
-- Check that `Land_Use` field values match lookup table exactly
-- Land use codes are case-sensitive
-- Check for leading/trailing spaces
+### "No features imported" (Channel Designer)
+- Check that required fields are mapped
+- Verify layer has valid geometry
+- Check for NULL values in depth/width fields
 
-### "No intersection results"
-- Verify layers overlap spatially
-- Check CRS matches between layers
-- Try running QGIS Vector > Geoprocessing > Intersection manually
+### "TC Calculator shows 0 minutes"
+- Check that Length_ft and Slope_Pct are not zero
+- Verify Flow_Type values match expected (SHEET, SHALLOW_CONC, etc.)
+- Check Manning's n is reasonable (0.01-0.80)
 
-### "Invalid CN value"
-- CN must be 30-100
-- Check soils HSG field for invalid values
-- Verify lookup table format
+### "Layer not appearing in dropdown"
+- TC Calculator v2.0 requires LINE geometry for flowpaths
+- Channel Designer requires LINE geometry for channels
+- CN/C Calculators require POLYGON geometry
 
-### "Tc seems too low/high"
-- Verify flow length units (feet vs meters)
-- Check slope is in percent, not decimal
-- Compare multiple methods
+### "Comparison methods give very different results"
+- This is expected! Methods have different assumptions
+- Use segment-based TC as primary (most accurate)
+- Use whole-watershed methods for validation/comparison
 
 ---
 
@@ -537,5 +518,5 @@ CH-001    TRAPEZOIDAL    4.0    8.0    2.0    2.0
 
 ---
 
-*Last Updated: January 2025*  
+*Last Updated: January 2025 (v2.0.0)*  
 *Author: Joey Woody, PE - J. Bragg Consulting Inc.*

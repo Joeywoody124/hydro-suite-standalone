@@ -5,6 +5,72 @@ All notable changes to Hydro Suite Standalone will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2025-01-01
+
+### Major Changes
+
+#### TC Calculator - Complete Rewrite (v2.0)
+- **NEW: Flowpaths Layer Input** - Uses TR-55 style segment-based travel times
+  - Supports flow types: SHEET, SHALLOW_CONC, CHANNEL, PIPE
+  - Groups segments by Subbasin_ID for automatic aggregation
+  - Properly calculates travel time per flow type per TR-55
+- **FIXED: DEM Selector Bug** - Removed broken raster layer selector (was showing vector layers only)
+- **NEW: Field Mapping UI** - Map your layer fields to required inputs
+- **NEW: Segment Detail Output** - CSV with individual segment travel times
+- **Comparison Methods** - Kirpich, FAA, SCS Lag, Kerby available for validation
+- **Parameters Tab** - Configure 2-yr rainfall, hydraulic radius, method-specific values
+
+#### Channel Designer - Enhanced (v2.0)
+- **NEW: GIS Layer Import Tab** - Import channels directly from vector layers
+  - Works with `sample_channels.gpkg` and similar layers
+  - Field mapping for depth, width, slope, Manning's n
+  - Auto-detects common field names
+- **NEW: Capacity Calculation** - Manning's equation for flow capacity (Q)
+  - Added Manning's n and channel slope inputs
+  - Results now show Velocity (fps) and Capacity (cfs)
+- **Enhanced Results Table** - Added velocity and capacity columns
+- **Enhanced CSV Export** - Includes all hydraulic properties
+
+### Fixed
+- TC Calculator no longer shows vector layers in DEM selector (was a bug)
+- TC Calculator now properly implements TR-55 segment-based methodology
+- Channel Designer can now import from GIS layers (previously CSV only)
+
+### Technical Details
+- `tc_calculator_tool.py` - Complete rewrite with SegmentTravelTimeCalculator class
+- `channel_designer_tool.py` - Added GIS import tab and capacity calculations
+- Both tools now v2.0
+
+---
+
+## [1.2.0] - 2025-01-01
+
+### Added
+- **Example Data Package**
+  - `create_sample_layers.py` - GIS layer generator for testing
+  - 6 GeoPackage layers: subbasins, landuse, soils, flowpaths, channels, outlets
+  - All layers spatially aligned (SC State Plane EPSG:2273)
+  - Sample soils include standard and dual HSG (A/D, B/D)
+- **Lookup Tables (Corrected Formats)**
+  - `cn_lookup_table.csv` - 39 land use types with HSG columns (a, b, c, d)
+  - `c_lookup_table.csv` - 31 land use types with slope+HSG columns (a_0-2%, a_2-6%, etc.)
+  - `cn_lookup_split_hsg.csv` - CN with dual HSG support
+- **Documentation**
+  - `TUTORIALS.md` - Step-by-step tutorials for each tool
+  - `HANDOFF.md` - Session handoff document for continuity
+  - Updated `README.md` with example data section
+
+### Fixed
+- CN lookup table format (columns: landuse, a, b, c, d)
+- Rational C lookup table format (columns: landuse, a_0-2%, a_2-6%, a_6%+, b_0-2%, etc.)
+
+### Tested
+- CN Calculator - full workflow with sample data ✅
+- Rational C Calculator - full workflow with sample data ✅
+- Sample layer generation script ✅
+
+---
+
 ## [1.1.0] - 2025-01-01
 
 ### Added
@@ -96,12 +162,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 2.0.0 | 2025-01-01 | TC Calculator rewrite, Channel Designer GIS import |
+| 1.2.0 | 2025-01-01 | Example data, lookup tables, tutorials |
 | 1.1.0 | 2025-01-01 | Multi-style GUI theming system |
-| 1.0.0 | 2025-01-31 | Initial standalone release |
+| 1.0.0 | 2025-01-01 | Initial standalone release |
 
 ---
 
 ## Migration Notes
+
+### From v1.x to v2.0
+
+**TC Calculator Changes:**
+- The DEM input has been removed (was non-functional)
+- Now requires a flowpaths layer with pre-calculated segment data
+- Use `sample_flowpaths.gpkg` from example data as template
+- Required fields: Subbasin_ID, Length_ft, Slope_Pct, Mannings_n, Flow_Type
+
+**Channel Designer Changes:**
+- New "Import from Layer" tab added
+- Can now import directly from GIS layers like `sample_channels.gpkg`
+- Results table now shows velocity and capacity
 
 ### From Plugin to Standalone
 

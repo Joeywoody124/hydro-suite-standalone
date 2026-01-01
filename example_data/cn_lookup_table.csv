@@ -1,4 +1,4 @@
-Land_Use,Description,HSG_A,HSG_B,HSG_C,HSG_D
+landuse,description,a,b,c,d
 OPEN_SPACE_GOOD,Open space - good condition (grass cover >75%),39,61,74,80
 OPEN_SPACE_FAIR,Open space - fair condition (grass cover 50-75%),49,69,79,84
 OPEN_SPACE_POOR,Open space - poor condition (grass cover <50%),68,79,86,89

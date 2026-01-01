@@ -1,10 +1,17 @@
 """
 Time of Concentration Calculator Tool for Hydro Suite
-Multi-method TC calculator with comprehensive methodology support
-Version 1.0 - 2025
+Multi-method TC calculator with TR-55 style segment-based approach
+Version 2.0 - January 2025
 
 STANDALONE SCRIPT VERSION
 Repository: https://github.com/Joeywoody124/hydro-suite-standalone
+
+Changelog v2.0:
+- Added flowpaths layer input support (TR-55 compliant)
+- Implemented segment-based travel time calculation
+- Added flow type specific calculations (Sheet, Shallow Concentrated, Channel, Pipe)
+- Removed broken DEM-based slope extraction
+- Added proper grouping by subbasin
 """
 
 import os
@@ -18,9 +25,9 @@ from qgis.PyQt.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QMessageBox, QScrollArea, QFrame, QGroupBox, QCheckBox,
     QDoubleSpinBox, QSpinBox, QComboBox, QTabWidget, QTableWidget,
-    QTableWidgetItem, QHeaderView
+    QTableWidgetItem, QHeaderView, QRadioButton, QButtonGroup
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QVariant
 
 from qgis.core import (
     QgsCoordinateReferenceSystem, QgsProcessingFeedback, QgsProject,
@@ -36,6 +43,10 @@ from shared_widgets import (
     ProgressLogger, ValidationPanel
 )
 
+
+# =============================================================================
+# TC Calculation Methods
+# =============================================================================
 
 class TCMethodCalculator:
     """Base class for TC calculation methods"""
@@ -64,7 +75,7 @@ class KirpichMethod(TCMethodCalculator):
     def __init__(self):
         super().__init__("Kirpich", "Rural watersheds with defined channels")
         self.parameters = {
-            'coefficient': 0.0078,  # Standard coefficient
+            'coefficient': 0.0078,
             'length_exponent': 0.77,
             'slope_exponent': -0.385
         }
@@ -72,14 +83,18 @@ class KirpichMethod(TCMethodCalculator):
     def calculate(self, length_ft: float, slope_percent: float, **kwargs) -> float:
         """
         Kirpich formula: tc = 0.0078 * (L^0.77) / (S^0.385)
-        where L is length in feet, S is slope in %
+        where L is length in feet, S is slope in ft/ft
+        Returns time in minutes
         """
         if length_ft <= 0 or slope_percent <= 0:
             return 0.0
+        
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_percent / 100.0
             
         return (self.parameters['coefficient'] * 
                 (length_ft ** self.parameters['length_exponent']) / 
-                (slope_percent ** self.parameters['slope_exponent']))
+                (slope_ftft ** self.parameters['slope_exponent']))
 
 
 class FAAMethod(TCMethodCalculator):
@@ -91,13 +106,13 @@ class FAAMethod(TCMethodCalculator):
             'coefficient': 1.8,
             'length_exponent': 0.5,
             'slope_exponent': -0.33,
-            'c_factor': 1.1  # Runoff coefficient factor
+            'c_factor': 1.1
         }
         
     def calculate(self, length_ft: float, slope_percent: float, **kwargs) -> float:
         """
         FAA formula: tc = (1.8 * (1.1 - C) * L^0.5) / S^0.33
-        where C is runoff coefficient (default 0.2 for mixed development)
+        Returns time in minutes
         """
         if length_ft <= 0 or slope_percent <= 0:
             return 0.0
@@ -110,42 +125,46 @@ class FAAMethod(TCMethodCalculator):
                 (slope_percent ** self.parameters['slope_exponent']))
 
 
-class SCSMethod(TCMethodCalculator):
-    """SCS/NRCS (1972) method for natural watersheds"""
+class SCSLagMethod(TCMethodCalculator):
+    """SCS/NRCS Lag Method for natural watersheds"""
     
     def __init__(self):
-        super().__init__("SCS/NRCS", "Natural watersheds, NRCS compliance")
+        super().__init__("SCS Lag", "NRCS lag equation (Tc = Lag / 0.6)")
         self.parameters = {
-            'coefficient': 0.0078,
-            'length_exponent': 0.8,
-            'slope_exponent': -0.5,
-            'cn_adjustment': True
+            'coefficient': 0.8,  # (L^0.8)
         }
         
     def calculate(self, length_ft: float, slope_percent: float, **kwargs) -> float:
         """
-        SCS formula: tc = 0.0078 * (L^0.8) / (S^0.5)
-        with optional CN adjustment
+        SCS Lag formula: Lag = (L^0.8 * ((1000/CN) - 9)^0.7) / (1900 * S^0.5)
+        Tc = Lag / 0.6
+        Returns time in minutes (converted from hours)
         """
         if length_ft <= 0 or slope_percent <= 0:
             return 0.0
             
-        base_tc = (self.parameters['coefficient'] * 
-                  (length_ft ** self.parameters['length_exponent']) / 
-                  (slope_percent ** self.parameters['slope_exponent']))
+        cn = kwargs.get('curve_number', 75)
+        if cn <= 0 or cn > 100:
+            cn = 75
+            
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_percent / 100.0
         
-        # Optional CN adjustment
-        if self.parameters['cn_adjustment']:
-            cn = kwargs.get('curve_number', 75)
-            if cn > 0:
-                adjustment_factor = (100 - cn) / 100
-                base_tc *= (1 + adjustment_factor)
+        # Calculate lag in hours
+        storage_term = (1000.0 / cn) - 9.0
+        if storage_term <= 0:
+            storage_term = 0.1
+            
+        lag_hours = ((length_ft ** 0.8) * (storage_term ** 0.7)) / (1900.0 * (slope_ftft ** 0.5))
+        
+        # Convert to Tc in minutes
+        tc_minutes = (lag_hours / 0.6) * 60.0
                 
-        return base_tc
+        return tc_minutes
 
 
 class KerbyMethod(TCMethodCalculator):
-    """Kerby method for overland flow with surface roughness"""
+    """Kerby method for overland/sheet flow with surface roughness"""
     
     def __init__(self):
         super().__init__("Kerby", "Overland flow with surface roughness")
@@ -153,56 +172,227 @@ class KerbyMethod(TCMethodCalculator):
             'coefficient': 1.44,
             'length_exponent': 0.467,
             'slope_exponent': -0.235,
-            'roughness_coefficient': 0.4  # Default for mixed surfaces
         }
         
     def calculate(self, length_ft: float, slope_percent: float, **kwargs) -> float:
         """
         Kerby formula: tc = 1.44 * (n * L)^0.467 / S^0.235
         where n is Manning's roughness coefficient
+        Returns time in minutes
         """
         if length_ft <= 0 or slope_percent <= 0:
             return 0.0
             
-        n = kwargs.get('roughness_coefficient', self.parameters['roughness_coefficient'])
+        n = kwargs.get('mannings_n', 0.4)
+        
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_percent / 100.0
         
         return (self.parameters['coefficient'] * 
                 ((n * length_ft) ** self.parameters['length_exponent']) / 
-                (slope_percent ** self.parameters['slope_exponent']))
+                (slope_ftft ** self.parameters['slope_exponent']))
 
+
+# =============================================================================
+# TR-55 Segment Travel Time Calculators
+# =============================================================================
+
+class SegmentTravelTimeCalculator:
+    """Calculate travel time for individual flow path segments per TR-55"""
+    
+    # Sheet flow Manning's n values (TR-55 Table 3-1)
+    SHEET_FLOW_N = {
+        'SMOOTH': 0.011,
+        'FALLOW': 0.05,
+        'CULTIVATED_RESIDUE': 0.06,
+        'CULTIVATED_NO_RESIDUE': 0.17,
+        'GRASS_SHORT': 0.15,
+        'GRASS_DENSE': 0.24,
+        'GRASS_BERMUDA': 0.41,
+        'RANGE_NATURAL': 0.13,
+        'WOODS_LIGHT': 0.40,
+        'WOODS_DENSE': 0.80,
+    }
+    
+    # Shallow concentrated flow velocities (ft/s) per TR-55
+    SHALLOW_CONC_VELOCITY = {
+        'PAVED': lambda s: 20.328 * (s ** 0.5),      # Paved: V = 20.328 * S^0.5
+        'UNPAVED': lambda s: 16.135 * (s ** 0.5),    # Unpaved: V = 16.135 * S^0.5
+    }
+    
+    @staticmethod
+    def sheet_flow_time(length_ft: float, slope_pct: float, mannings_n: float, 
+                        rainfall_intensity: float = 2.5) -> float:
+        """
+        TR-55 Sheet Flow travel time
+        
+        Tt = (0.007 * (n * L)^0.8) / (P2^0.5 * S^0.4)
+        
+        Args:
+            length_ft: Flow length in feet (max 300 ft per TR-55)
+            slope_pct: Slope in percent
+            mannings_n: Manning's n for sheet flow surface
+            rainfall_intensity: 2-year, 24-hour rainfall in inches (default 2.5)
+            
+        Returns:
+            Travel time in minutes
+        """
+        # Limit sheet flow to 300 ft per TR-55
+        length_ft = min(length_ft, 300.0)
+        
+        if length_ft <= 0 or slope_pct <= 0 or mannings_n <= 0:
+            return 0.0
+        
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_pct / 100.0
+        
+        # TR-55 Equation 3-3: Tt in hours
+        tt_hours = (0.007 * ((mannings_n * length_ft) ** 0.8)) / \
+                   ((rainfall_intensity ** 0.5) * (slope_ftft ** 0.4))
+        
+        return tt_hours * 60.0  # Convert to minutes
+    
+    @staticmethod
+    def shallow_concentrated_time(length_ft: float, slope_pct: float, 
+                                  surface_type: str = 'UNPAVED') -> float:
+        """
+        TR-55 Shallow Concentrated Flow travel time
+        
+        Args:
+            length_ft: Flow length in feet
+            slope_pct: Slope in percent
+            surface_type: 'PAVED' or 'UNPAVED'
+            
+        Returns:
+            Travel time in minutes
+        """
+        if length_ft <= 0 or slope_pct <= 0:
+            return 0.0
+        
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_pct / 100.0
+        
+        # Get velocity function
+        if surface_type.upper() in SegmentTravelTimeCalculator.SHALLOW_CONC_VELOCITY:
+            velocity_func = SegmentTravelTimeCalculator.SHALLOW_CONC_VELOCITY[surface_type.upper()]
+        else:
+            velocity_func = SegmentTravelTimeCalculator.SHALLOW_CONC_VELOCITY['UNPAVED']
+        
+        # Calculate velocity in ft/s
+        velocity_fps = velocity_func(slope_ftft)
+        
+        if velocity_fps <= 0:
+            return 0.0
+        
+        # Time = Length / Velocity, convert to minutes
+        tt_seconds = length_ft / velocity_fps
+        return tt_seconds / 60.0
+    
+    @staticmethod
+    def channel_flow_time(length_ft: float, slope_pct: float, mannings_n: float,
+                          hydraulic_radius: float = 1.0) -> float:
+        """
+        Open channel flow travel time using Manning's equation
+        
+        V = (1.49/n) * R^(2/3) * S^(1/2)
+        
+        Args:
+            length_ft: Channel length in feet
+            slope_pct: Channel slope in percent
+            mannings_n: Manning's n for channel
+            hydraulic_radius: Hydraulic radius in feet (default 1.0)
+            
+        Returns:
+            Travel time in minutes
+        """
+        if length_ft <= 0 or slope_pct <= 0 or mannings_n <= 0:
+            return 0.0
+        
+        # Convert slope from percent to ft/ft
+        slope_ftft = slope_pct / 100.0
+        
+        # Manning's equation for velocity (ft/s)
+        velocity_fps = (1.49 / mannings_n) * (hydraulic_radius ** (2.0/3.0)) * (slope_ftft ** 0.5)
+        
+        if velocity_fps <= 0:
+            return 0.0
+        
+        # Time = Length / Velocity, convert to minutes
+        tt_seconds = length_ft / velocity_fps
+        return tt_seconds / 60.0
+    
+    @staticmethod
+    def pipe_flow_time(length_ft: float, slope_pct: float, mannings_n: float = 0.013,
+                       diameter_ft: float = 1.5) -> float:
+        """
+        Pipe flow travel time using Manning's equation (full flow assumed)
+        
+        Args:
+            length_ft: Pipe length in feet
+            slope_pct: Pipe slope in percent
+            mannings_n: Manning's n for pipe (default 0.013 for concrete)
+            diameter_ft: Pipe diameter in feet
+            
+        Returns:
+            Travel time in minutes
+        """
+        if length_ft <= 0 or slope_pct <= 0 or diameter_ft <= 0:
+            return 0.0
+        
+        # Hydraulic radius for circular pipe flowing full = D/4
+        hydraulic_radius = diameter_ft / 4.0
+        
+        return SegmentTravelTimeCalculator.channel_flow_time(
+            length_ft, slope_pct, mannings_n, hydraulic_radius
+        )
+
+
+# =============================================================================
+# Main TC Calculator Tool
+# =============================================================================
 
 class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
-    """Time of Concentration Calculator with multiple methods"""
+    """
+    Time of Concentration Calculator with TR-55 style segment-based approach
+    
+    Version 2.0 - Supports flowpath layer input with segment travel times
+    """
     
     def __init__(self):
         super().__init__()
         self.name = "Time of Concentration Calculator"
-        self.description = "Calculate time of concentration using multiple industry-standard methods"
+        self.description = "Calculate TC using TR-55 segment-based travel times from flowpath layer"
         self.category = "Watershed Analysis"
-        self.version = "1.0"
+        self.version = "2.0"
         self.author = "Hydro Suite"
         
-        # Available methods
+        # Available whole-watershed methods (for comparison)
         self.methods = {
             'kirpich': KirpichMethod(),
             'faa': FAAMethod(),
-            'scs': SCSMethod(),
+            'scs_lag': SCSLagMethod(),
             'kerby': KerbyMethod()
         }
         
         # Tool-specific properties
-        self.target_crs = QgsCoordinateReferenceSystem("EPSG:3361")
-        self.selected_methods = ['kirpich', 'faa']  # Default selection
+        self.target_crs = QgsCoordinateReferenceSystem("EPSG:2273")  # SC State Plane
+        self.selected_methods = ['kirpich', 'scs_lag']  # Default selection
         
         # GUI components
-        self.subbasin_selector = None
-        self.dem_selector = None
+        self.flowpath_selector = None
         self.output_selector = None
         self.validation_panel = None
         self.progress_logger = None
         self.method_checkboxes = {}
         self.parameter_widgets = {}
         self.results_table = None
+        
+        # Field selectors
+        self.field_subbasin_id = None
+        self.field_length = None
+        self.field_slope = None
+        self.field_mannings_n = None
+        self.field_flow_type = None
         
     def create_gui(self, parent_widget: QWidget) -> QWidget:
         """Create the TC Calculator GUI with tabbed interface"""
@@ -213,7 +403,7 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         main_tab = self.create_main_tab()
         tab_widget.addTab(main_tab, "Configuration")
         
-        # Methods tab
+        # Methods tab (for comparison methods)
         methods_tab = self.create_methods_tab()
         tab_widget.addTab(methods_tab, "Methods")
         
@@ -230,7 +420,6 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         
     def create_main_tab(self) -> QWidget:
         """Create main configuration tab"""
-        # Create scroll area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         
@@ -243,8 +432,10 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         layout.addWidget(title_label)
         
         desc_label = QLabel(
-            "<p>This tool calculates time of concentration using multiple industry-standard methods. "
-            "It requires subbasin polygons and a DEM for slope calculations.</p>"
+            "<p>This tool calculates time of concentration using TR-55 style "
+            "segment-based travel times. Input a flowpaths layer with pre-calculated "
+            "length, slope, and Manning's n values for each segment.</p>"
+            "<p><b>Flow Types:</b> SHEET, SHALLOW_CONC, CHANNEL, PIPE</p>"
         )
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet("color: #555; margin-bottom: 10px;")
@@ -254,30 +445,72 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         self.validation_panel = ValidationPanel()
         layout.addWidget(self.validation_panel)
         
-        # Input layers section
+        # Input layer section
         inputs_frame = QFrame()
         inputs_frame.setFrameStyle(QFrame.StyledPanel)
         inputs_layout = QVBoxLayout(inputs_frame)
         
-        inputs_title = QLabel("<h3>Input Data</h3>")
+        inputs_title = QLabel("<h3>Input Data - Flowpaths Layer</h3>")
         inputs_layout.addWidget(inputs_title)
         
-        # Subbasin layer selector
-        self.subbasin_selector = LayerFieldSelector(
-            "Subbasin Layer", 
-            default_field="Name",
-            geometry_type=QgsWkbTypes.PolygonGeometry
+        # Flowpath layer selector
+        self.flowpath_selector = LayerFieldSelector(
+            "Flowpaths Layer",
+            default_field="FP_ID",
+            geometry_type=QgsWkbTypes.LineGeometry
         )
-        inputs_layout.addWidget(self.subbasin_selector)
+        inputs_layout.addWidget(self.flowpath_selector)
         
-        # DEM layer selector
-        self.dem_selector = LayerFieldSelector(
-            "DEM (Digital Elevation Model)",
-            default_field="",
-            geometry_type=None  # Raster layer
-        )
-        inputs_layout.addWidget(self.dem_selector)
+        # Field mapping section
+        fields_group = QGroupBox("Field Mapping")
+        fields_layout = QVBoxLayout(fields_group)
         
+        # Subbasin ID field
+        sb_layout = QHBoxLayout()
+        sb_layout.addWidget(QLabel("Subbasin ID Field:"))
+        self.field_subbasin_id = QComboBox()
+        self.field_subbasin_id.setMinimumWidth(150)
+        sb_layout.addWidget(self.field_subbasin_id)
+        sb_layout.addStretch()
+        fields_layout.addLayout(sb_layout)
+        
+        # Length field
+        len_layout = QHBoxLayout()
+        len_layout.addWidget(QLabel("Length (ft) Field:"))
+        self.field_length = QComboBox()
+        self.field_length.setMinimumWidth(150)
+        len_layout.addWidget(self.field_length)
+        len_layout.addStretch()
+        fields_layout.addLayout(len_layout)
+        
+        # Slope field
+        slope_layout = QHBoxLayout()
+        slope_layout.addWidget(QLabel("Slope (%) Field:"))
+        self.field_slope = QComboBox()
+        self.field_slope.setMinimumWidth(150)
+        slope_layout.addWidget(self.field_slope)
+        slope_layout.addStretch()
+        fields_layout.addLayout(slope_layout)
+        
+        # Manning's n field
+        n_layout = QHBoxLayout()
+        n_layout.addWidget(QLabel("Manning's n Field:"))
+        self.field_mannings_n = QComboBox()
+        self.field_mannings_n.setMinimumWidth(150)
+        n_layout.addWidget(self.field_mannings_n)
+        n_layout.addStretch()
+        fields_layout.addLayout(n_layout)
+        
+        # Flow type field
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Flow Type Field:"))
+        self.field_flow_type = QComboBox()
+        self.field_flow_type.setMinimumWidth(150)
+        type_layout.addWidget(self.field_flow_type)
+        type_layout.addStretch()
+        fields_layout.addLayout(type_layout)
+        
+        inputs_layout.addWidget(fields_group)
         layout.addWidget(inputs_frame)
         
         # Output section
@@ -288,7 +521,6 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         output_title = QLabel("<h3>Output</h3>")
         output_layout.addWidget(output_title)
         
-        # Output directory selector
         self.output_selector = DirectorySelector(
             "Output Directory",
             default_path=""
@@ -332,26 +564,68 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         
         layout.addLayout(button_layout)
         
-        # Setup validation monitoring
+        # Setup connections
+        self.flowpath_selector.layer_changed.connect(self.on_layer_changed)
         self.setup_validation_monitoring()
         
         # Initial validation
         self.validate_and_update()
         
         return scroll
+    
+    def on_layer_changed(self, layer):
+        """Update field combos when layer changes"""
+        # Clear existing items
+        for combo in [self.field_subbasin_id, self.field_length, self.field_slope,
+                      self.field_mannings_n, self.field_flow_type]:
+            combo.clear()
+            combo.addItem("-- Select Field --", None)
+        
+        if not layer or not layer.isValid():
+            return
+        
+        # Get field names
+        field_names = [field.name() for field in layer.fields()]
+        
+        # Add fields to combos
+        for field_name in field_names:
+            for combo in [self.field_subbasin_id, self.field_length, self.field_slope,
+                          self.field_mannings_n, self.field_flow_type]:
+                combo.addItem(field_name, field_name)
+        
+        # Try to auto-select common field names
+        field_map = {
+            self.field_subbasin_id: ['Subbasin_ID', 'SubbasinID', 'SB_ID', 'SBID'],
+            self.field_length: ['Length_ft', 'Length', 'LEN', 'LENGTH_FT'],
+            self.field_slope: ['Slope_Pct', 'Slope', 'SLOPE', 'SLOPE_PCT'],
+            self.field_mannings_n: ['Mannings_n', 'Manning_n', 'N', 'MANNINGS_N'],
+            self.field_flow_type: ['Flow_Type', 'FlowType', 'TYPE', 'FLOW_TYPE'],
+        }
+        
+        for combo, candidates in field_map.items():
+            for candidate in candidates:
+                for i in range(combo.count()):
+                    if combo.itemText(i).upper() == candidate.upper():
+                        combo.setCurrentIndex(i)
+                        break
+                else:
+                    continue
+                break
+        
+        self.progress_logger.log(f"Layer loaded: {layer.name()} ({len(field_names)} fields)")
         
     def create_methods_tab(self) -> QWidget:
-        """Create methods selection tab"""
+        """Create methods selection tab for comparison calculations"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
         # Title
-        title = QLabel("<h3>Select Calculation Methods</h3>")
+        title = QLabel("<h3>Comparison Methods (Optional)</h3>")
         layout.addWidget(title)
         
         desc = QLabel(
-            "Choose one or more methods for TC calculation. "
-            "Multiple methods allow for comparison and validation of results."
+            "Select whole-watershed methods to compare against segment-based TC. "
+            "These use total flow length and average slope, useful for validation."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #666; margin-bottom: 15px;")
@@ -363,12 +637,9 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         methods_layout = QVBoxLayout(methods_frame)
         
         for method_id, method in self.methods.items():
-            # Create checkbox
             checkbox = QCheckBox(f"{method.name} - {method.description}")
             checkbox.setChecked(method_id in self.selected_methods)
             checkbox.toggled.connect(lambda checked, mid=method_id: self.on_method_toggled(mid, checked))
-            
-            # Add to layout and store reference
             methods_layout.addWidget(checkbox)
             self.method_checkboxes[method_id] = checkbox
             
@@ -383,10 +654,15 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         info_layout.addWidget(info_title)
         
         method_info = QLabel("""
-<b>Kirpich (1940):</b> Best for rural watersheds with defined channels. Formula: tc = 0.0078 * (L^0.77) / (S^0.385)<br><br>
-<b>FAA (1965):</b> Standard for urban areas and regulatory compliance. Accounts for runoff coefficient.<br><br>
-<b>SCS/NRCS (1972):</b> Natural watersheds, NRCS compliance. Optional curve number adjustment.<br><br>
-<b>Kerby:</b> Overland flow with surface roughness considerations. Uses Manning's n coefficient.
+<b>Primary Method (always used):</b><br>
+TR-55 Segment-Based: Sums travel times for sheet flow, shallow concentrated flow, 
+and channel/pipe flow segments. Most accurate for complex flow paths.<br><br>
+
+<b>Comparison Methods:</b><br>
+<b>Kirpich (1940):</b> tc = 0.0078 * L^0.77 / S^0.385 - Best for rural watersheds<br>
+<b>FAA (1965):</b> tc = 1.8 * (1.1-C) * L^0.5 / S^0.33 - Urban areas<br>
+<b>SCS Lag:</b> Tc = Lag/0.6 where Lag = f(L, CN, S) - NRCS standard<br>
+<b>Kerby:</b> tc = 1.44 * (nL)^0.467 / S^0.235 - Overland flow only<br>
         """)
         method_info.setWordWrap(True)
         method_info.setStyleSheet("color: #555; padding: 10px;")
@@ -403,31 +679,54 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         layout = QVBoxLayout(widget)
         
         # Title
-        title = QLabel("<h3>Method Parameters</h3>")
+        title = QLabel("<h3>Calculation Parameters</h3>")
         layout.addWidget(title)
         
-        desc = QLabel(
-            "Adjust method-specific parameters. Default values are based on standard practice."
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet("color: #666; margin-bottom: 15px;")
-        layout.addWidget(desc)
+        # TR-55 parameters
+        tr55_group = QGroupBox("TR-55 Segment Parameters")
+        tr55_layout = QVBoxLayout(tr55_group)
         
-        # Create parameter groups for each method
+        # 2-year rainfall
+        p2_layout = QHBoxLayout()
+        p2_layout.addWidget(QLabel("2-yr 24-hr Rainfall (in):"))
+        self.p2_spin = QDoubleSpinBox()
+        self.p2_spin.setRange(1.0, 10.0)
+        self.p2_spin.setValue(3.5)  # SC Lowcountry typical
+        self.p2_spin.setSingleStep(0.1)
+        self.p2_spin.setDecimals(1)
+        self.p2_spin.setToolTip("Used for sheet flow calculation (TR-55 Eq. 3-3)")
+        p2_layout.addWidget(self.p2_spin)
+        p2_layout.addStretch()
+        tr55_layout.addLayout(p2_layout)
+        
+        # Default hydraulic radius for channels
+        hr_layout = QHBoxLayout()
+        hr_layout.addWidget(QLabel("Default Hydraulic Radius (ft):"))
+        self.hr_spin = QDoubleSpinBox()
+        self.hr_spin.setRange(0.1, 10.0)
+        self.hr_spin.setValue(1.0)
+        self.hr_spin.setSingleStep(0.1)
+        self.hr_spin.setDecimals(2)
+        self.hr_spin.setToolTip("Used when not provided in layer attributes")
+        hr_layout.addWidget(self.hr_spin)
+        hr_layout.addStretch()
+        tr55_layout.addLayout(hr_layout)
+        
+        layout.addWidget(tr55_group)
+        
+        # Comparison method parameters
         for method_id, method in self.methods.items():
             group = QGroupBox(f"{method.name} Parameters")
             group_layout = QVBoxLayout(group)
             
-            # Create parameter widgets based on method
             method_widgets = {}
             
             if method_id == 'faa':
-                # FAA specific parameters
                 rc_layout = QHBoxLayout()
                 rc_layout.addWidget(QLabel("Runoff Coefficient:"))
                 rc_spin = QDoubleSpinBox()
                 rc_spin.setRange(0.1, 0.95)
-                rc_spin.setValue(0.2)
+                rc_spin.setValue(0.3)
                 rc_spin.setSingleStep(0.05)
                 rc_spin.setDecimals(2)
                 rc_layout.addWidget(rc_spin)
@@ -435,10 +734,9 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
                 group_layout.addLayout(rc_layout)
                 method_widgets['runoff_coefficient'] = rc_spin
                 
-            elif method_id == 'scs':
-                # SCS specific parameters
+            elif method_id == 'scs_lag':
                 cn_layout = QHBoxLayout()
-                cn_layout.addWidget(QLabel("Curve Number (if available):"))
+                cn_layout.addWidget(QLabel("Curve Number:"))
                 cn_spin = QSpinBox()
                 cn_spin.setRange(30, 98)
                 cn_spin.setValue(75)
@@ -448,22 +746,19 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
                 method_widgets['curve_number'] = cn_spin
                 
             elif method_id == 'kerby':
-                # Kerby specific parameters
                 n_layout = QHBoxLayout()
-                n_layout.addWidget(QLabel("Manning's n (roughness):"))
+                n_layout.addWidget(QLabel("Manning's n (avg):"))
                 n_spin = QDoubleSpinBox()
-                n_spin.setRange(0.1, 1.0)
+                n_spin.setRange(0.01, 1.0)
                 n_spin.setValue(0.4)
-                n_spin.setSingleStep(0.1)
+                n_spin.setSingleStep(0.05)
                 n_spin.setDecimals(2)
                 n_layout.addWidget(n_spin)
                 n_layout.addStretch()
                 group_layout.addLayout(n_layout)
-                method_widgets['roughness_coefficient'] = n_spin
+                method_widgets['mannings_n'] = n_spin
                 
-            # Store widgets for later access
             self.parameter_widgets[method_id] = method_widgets
-            
             layout.addWidget(group)
             
         layout.addStretch()
@@ -502,18 +797,12 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         
     def setup_validation_monitoring(self):
         """Setup validation monitoring for all inputs"""
-        # Add validation items
-        self.validation_panel.add_validation("subbasin", "Subbasin layer and field")
-        self.validation_panel.add_validation("dem", "DEM layer")
-        self.validation_panel.add_validation("methods", "At least one calculation method")
+        self.validation_panel.add_validation("flowpath", "Flowpaths layer")
+        self.validation_panel.add_validation("fields", "Required field mapping")
         self.validation_panel.add_validation("output", "Output directory")
         
-        # Connect validation signals
-        self.subbasin_selector.selection_valid.connect(
-            lambda valid: self.validation_panel.set_validation_status("subbasin", valid)
-        )
-        self.dem_selector.selection_valid.connect(
-            lambda valid: self.validation_panel.set_validation_status("dem", valid)
+        self.flowpath_selector.selection_valid.connect(
+            lambda valid: self.validation_panel.set_validation_status("flowpath", valid)
         )
         self.output_selector.directory_selected.connect(
             lambda dir: self.validation_panel.set_validation_status("output", bool(dir))
@@ -521,14 +810,17 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         
     def validate_and_update(self):
         """Validate all inputs and update UI"""
-        # Trigger validation on all selectors
-        self.subbasin_selector.validate_selection()
-        self.dem_selector.validate_selection()
+        self.flowpath_selector.validate_selection()
         
-        # Validate methods selection
-        methods_valid = len(self.selected_methods) > 0
-        self.validation_panel.set_validation_status("methods", methods_valid, 
-                                                   f"{len(self.selected_methods)} methods selected")
+        # Validate field selections
+        fields_valid = all([
+            self.field_subbasin_id.currentData() is not None,
+            self.field_length.currentData() is not None,
+            self.field_slope.currentData() is not None,
+            self.field_mannings_n.currentData() is not None,
+            self.field_flow_type.currentData() is not None,
+        ])
+        self.validation_panel.set_validation_status("fields", fields_valid)
         
         # Validate output directory
         output_valid = self.output_selector.is_valid()
@@ -548,18 +840,16 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         """Validate all inputs before processing"""
         errors = []
         
-        # Check layer selections
-        if not self.subbasin_selector.is_valid():
-            errors.append("Invalid subbasin layer or field selection")
+        if not self.flowpath_selector.is_valid():
+            errors.append("Invalid flowpaths layer selection")
             
-        if not self.dem_selector.is_valid():
-            errors.append("Invalid DEM layer selection")
+        if not all([self.field_subbasin_id.currentData(),
+                    self.field_length.currentData(),
+                    self.field_slope.currentData(),
+                    self.field_mannings_n.currentData(),
+                    self.field_flow_type.currentData()]):
+            errors.append("Not all required fields are mapped")
             
-        # Check methods selection
-        if not self.selected_methods:
-            errors.append("No calculation methods selected")
-            
-        # Check output directory
         if not self.output_selector.is_valid():
             errors.append("No output directory selected")
             
@@ -590,23 +880,31 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
             if not valid:
                 raise ValueError(message)
                 
-            # Get input layers and fields
-            subbasin_layer = self.subbasin_selector.get_selected_layer()
-            subbasin_field = self.subbasin_selector.get_selected_field()
-            dem_layer = self.dem_selector.get_selected_layer()
+            # Get inputs
+            flowpath_layer = self.flowpath_selector.get_selected_layer()
             output_dir = self.output_selector.get_selected_directory()
             
-            progress_callback(10, f"Using methods: {', '.join(self.selected_methods)}")
+            # Get field names
+            field_names = {
+                'subbasin_id': self.field_subbasin_id.currentData(),
+                'length': self.field_length.currentData(),
+                'slope': self.field_slope.currentData(),
+                'mannings_n': self.field_mannings_n.currentData(),
+                'flow_type': self.field_flow_type.currentData(),
+            }
             
-            # Calculate TC for each subbasin
-            progress_callback(20, "Processing subbasins...")
-            results = self.calculate_tc_for_subbasins(
-                subbasin_layer, subbasin_field, dem_layer, progress_callback
-            )
+            progress_callback(10, "Reading flowpath segments...")
+            
+            # Process flowpaths by subbasin
+            results = self.calculate_tc_from_flowpaths(flowpath_layer, field_names, progress_callback)
+            
+            # Calculate comparison methods
+            progress_callback(70, "Calculating comparison methods...")
+            self.add_comparison_methods(results, field_names)
             
             # Create outputs
-            progress_callback(80, "Creating output files...")
-            self.create_outputs(subbasin_layer, results, subbasin_field, output_dir)
+            progress_callback(85, "Creating output files...")
+            self.create_outputs(results, output_dir)
             
             # Update results display
             progress_callback(95, "Updating results display...")
@@ -628,75 +926,117 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         finally:
             self.progress_logger.show_progress(False)
             
-    def calculate_tc_for_subbasins(self, subbasin_layer: QgsVectorLayer, 
-                                  subbasin_field: str, dem_layer: QgsVectorLayer,
-                                  progress_callback: Callable) -> Dict:
-        """Calculate TC for each subbasin using selected methods"""
-        results = {}
-        total_features = subbasin_layer.featureCount()
+    def calculate_tc_from_flowpaths(self, layer: QgsVectorLayer, field_names: dict,
+                                    progress_callback: Callable) -> Dict:
+        """
+        Calculate TC for each subbasin by summing segment travel times
         
-        for i, feature in enumerate(subbasin_layer.getFeatures()):
-            subbasin_id = feature[subbasin_field]
-            geometry = feature.geometry()
+        Returns dict keyed by subbasin_id with segment details and total TC
+        """
+        results = {}
+        p2_rainfall = self.p2_spin.value()
+        default_hr = self.hr_spin.value()
+        
+        # Group features by subbasin
+        subbasin_segments = {}
+        
+        for feature in layer.getFeatures():
+            subbasin_id = str(feature[field_names['subbasin_id']])
             
-            # Calculate length and slope for this subbasin
-            length_ft, slope_percent = self.calculate_subbasin_characteristics(
-                geometry, dem_layer
-            )
+            if subbasin_id not in subbasin_segments:
+                subbasin_segments[subbasin_id] = []
             
-            # Calculate TC using each selected method
-            tc_results = {}
-            method_params = self.get_current_parameters()
+            segment = {
+                'length_ft': float(feature[field_names['length']] or 0),
+                'slope_pct': float(feature[field_names['slope']] or 0),
+                'mannings_n': float(feature[field_names['mannings_n']] or 0.035),
+                'flow_type': str(feature[field_names['flow_type']] or 'CHANNEL').upper(),
+            }
+            subbasin_segments[subbasin_id].append(segment)
+        
+        # Calculate travel time for each subbasin
+        total_subbasins = len(subbasin_segments)
+        
+        for i, (subbasin_id, segments) in enumerate(subbasin_segments.items()):
+            total_tt = 0.0
+            total_length = 0.0
+            segment_details = []
+            
+            for seg in segments:
+                flow_type = seg['flow_type']
+                length = seg['length_ft']
+                slope = seg['slope_pct']
+                n = seg['mannings_n']
+                
+                # Calculate travel time based on flow type
+                if 'SHEET' in flow_type:
+                    tt = SegmentTravelTimeCalculator.sheet_flow_time(
+                        length, slope, n, p2_rainfall
+                    )
+                elif 'SHALLOW' in flow_type or 'CONC' in flow_type:
+                    # Determine if paved or unpaved from Manning's n
+                    surface = 'PAVED' if n < 0.02 else 'UNPAVED'
+                    tt = SegmentTravelTimeCalculator.shallow_concentrated_time(
+                        length, slope, surface
+                    )
+                elif 'PIPE' in flow_type:
+                    tt = SegmentTravelTimeCalculator.pipe_flow_time(
+                        length, slope, n
+                    )
+                else:  # CHANNEL or default
+                    tt = SegmentTravelTimeCalculator.channel_flow_time(
+                        length, slope, n, default_hr
+                    )
+                
+                total_tt += tt
+                total_length += length
+                
+                segment_details.append({
+                    'flow_type': flow_type,
+                    'length_ft': length,
+                    'slope_pct': slope,
+                    'mannings_n': n,
+                    'travel_time_min': tt
+                })
+            
+            # Calculate average slope (length-weighted)
+            if total_length > 0:
+                avg_slope = sum(s['slope_pct'] * s['length_ft'] for s in segments) / total_length
+            else:
+                avg_slope = 0.0
+            
+            results[subbasin_id] = {
+                'tc_segment_min': total_tt,
+                'total_length_ft': total_length,
+                'avg_slope_pct': avg_slope,
+                'segment_count': len(segments),
+                'segments': segment_details,
+                'comparison_methods': {}
+            }
+            
+            progress = 10 + int((i + 1) / total_subbasins * 55)
+            progress_callback(progress, f"Processed {i + 1}/{total_subbasins} subbasins")
+        
+        return results
+    
+    def add_comparison_methods(self, results: Dict, field_names: dict):
+        """Add comparison method calculations to results"""
+        method_params = self.get_current_parameters()
+        
+        for subbasin_id, data in results.items():
+            total_length = data['total_length_ft']
+            avg_slope = data['avg_slope_pct']
             
             for method_id in self.selected_methods:
                 method = self.methods[method_id]
                 params = method_params.get(method_id, {})
                 
-                tc_minutes = method.calculate(length_ft, slope_percent, **params)
-                tc_results[method_id] = {
+                tc_minutes = method.calculate(total_length, avg_slope, **params)
+                data['comparison_methods'][method_id] = {
                     'tc_minutes': tc_minutes,
-                    'tc_hours': tc_minutes / 60.0,
                     'method_name': method.name
                 }
-                
-            results[subbasin_id] = {
-                'length_ft': length_ft,
-                'slope_percent': slope_percent,
-                'tc_results': tc_results
-            }
-            
-            # Update progress
-            progress = 20 + int((i + 1) / total_features * 60)
-            progress_callback(progress, f"Processed {i + 1}/{total_features} subbasins")
-            
-        return results
-        
-    def calculate_subbasin_characteristics(self, geometry: QgsGeometry, 
-                                         dem_layer: QgsVectorLayer) -> Tuple[float, float]:
-        """Calculate flow length and slope for a subbasin"""
-        # For now, use simplified approach
-        # In production, this would use more sophisticated flow path analysis
-        
-        # Get subbasin centroid and bounds
-        centroid = geometry.centroid().asPoint()
-        bbox = geometry.boundingBox()
-        
-        # Estimate flow length as longest dimension
-        length_ft = max(bbox.width(), bbox.height()) * 3.28084  # Convert m to ft
-        
-        # Estimate slope from DEM (simplified)
-        # In production, this would sample DEM values along flow path
-        slope_percent = 2.0  # Default 2% slope
-        
-        # TODO: Implement proper flow path and slope calculation
-        # This would involve:
-        # 1. Finding outlet point
-        # 2. Tracing flow path to divide
-        # 3. Sampling elevation along path
-        # 4. Calculating average slope
-        
-        return length_ft, slope_percent
-        
+    
     def get_current_parameters(self) -> Dict:
         """Get current parameter values from UI"""
         params = {}
@@ -712,12 +1052,11 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         
     def update_results_display(self, results: Dict):
         """Update the results table with calculation results"""
-        # Setup table
         subbasin_count = len(results)
-        method_count = len(self.selected_methods)
         
-        # Columns: Subbasin, Length, Slope, then TC for each method
-        columns = ['Subbasin', 'Length (ft)', 'Slope (%)', 'Min TC (min)', 'Max TC (min)', 'Avg TC (min)']
+        # Columns: Subbasin, Segments, Length, Slope, TC (Segment), then comparison methods
+        columns = ['Subbasin', 'Segments', 'Total Length (ft)', 'Avg Slope (%)', 
+                   'TC Segment (min)']
         for method_id in self.selected_methods:
             method_name = self.methods[method_id].name
             columns.append(f'{method_name} (min)')
@@ -726,33 +1065,26 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
         self.results_table.setColumnCount(len(columns))
         self.results_table.setHorizontalHeaderLabels(columns)
         
-        # Populate data
         all_tc_values = []
         
         for row, (subbasin_id, data) in enumerate(results.items()):
-            # Basic data
             self.results_table.setItem(row, 0, QTableWidgetItem(str(subbasin_id)))
-            self.results_table.setItem(row, 1, QTableWidgetItem(f"{data['length_ft']:.0f}"))
-            self.results_table.setItem(row, 2, QTableWidgetItem(f"{data['slope_percent']:.2f}"))
+            self.results_table.setItem(row, 1, QTableWidgetItem(str(data['segment_count'])))
+            self.results_table.setItem(row, 2, QTableWidgetItem(f"{data['total_length_ft']:.0f}"))
+            self.results_table.setItem(row, 3, QTableWidgetItem(f"{data['avg_slope_pct']:.2f}"))
+            self.results_table.setItem(row, 4, QTableWidgetItem(f"{data['tc_segment_min']:.1f}"))
             
-            # TC values for this subbasin
-            tc_values = [result['tc_minutes'] for result in data['tc_results'].values()]
-            all_tc_values.extend(tc_values)
+            all_tc_values.append(data['tc_segment_min'])
             
-            if tc_values:
-                self.results_table.setItem(row, 3, QTableWidgetItem(f"{min(tc_values):.1f}"))
-                self.results_table.setItem(row, 4, QTableWidgetItem(f"{max(tc_values):.1f}"))
-                self.results_table.setItem(row, 5, QTableWidgetItem(f"{sum(tc_values)/len(tc_values):.1f}"))
-            
-            # Individual method results
-            col = 6
+            # Comparison methods
+            col = 5
             for method_id in self.selected_methods:
-                if method_id in data['tc_results']:
-                    tc_min = data['tc_results'][method_id]['tc_minutes']
+                if method_id in data['comparison_methods']:
+                    tc_min = data['comparison_methods'][method_id]['tc_minutes']
                     self.results_table.setItem(row, col, QTableWidgetItem(f"{tc_min:.1f}"))
+                    all_tc_values.append(tc_min)
                 col += 1
                 
-        # Resize columns
         self.results_table.resizeColumnsToContents()
         
         # Update summary
@@ -764,173 +1096,81 @@ class TCCalculatorTool(HydroToolInterface, LayerSelectionMixin):
             summary = f"""
 <b>Calculation Summary:</b><br>
 - Subbasins processed: {subbasin_count}<br>
-- Methods used: {', '.join([self.methods[m].name for m in self.selected_methods])}<br>
+- Primary method: TR-55 Segment-Based<br>
+- Comparison methods: {', '.join([self.methods[m].name for m in self.selected_methods])}<br>
 - TC range: {min_tc:.1f} - {max_tc:.1f} minutes<br>
-- Average TC: {avg_tc:.1f} minutes
             """
             self.summary_label.setText(summary)
             self.summary_label.setStyleSheet("color: #333; padding: 10px;")
             
-    def create_outputs(self, subbasin_layer: QgsVectorLayer, results: Dict, 
-                      subbasin_field: str, output_dir: str):
+    def create_outputs(self, results: Dict, output_dir: str):
         """Create output files"""
-        from qgis.PyQt.QtCore import QVariant
-        
-        # Create output layer with TC fields
-        output_layer = QgsVectorLayer(f"Polygon?crs={self.target_crs.authid()}", "subbasins_tc", "memory")
-        output_provider = output_layer.dataProvider()
-        
-        # Copy original fields and add TC fields
-        original_fields = subbasin_layer.fields()
-        new_fields = [field for field in original_fields]
-        
-        # Add general TC fields
-        new_fields.append(QgsField("Length_ft", QVariant.Double, "double", 12, 2))
-        new_fields.append(QgsField("Slope_pct", QVariant.Double, "double", 8, 3))
-        new_fields.append(QgsField("TC_min_min", QVariant.Double, "double", 10, 2))
-        new_fields.append(QgsField("TC_max_min", QVariant.Double, "double", 10, 2))
-        new_fields.append(QgsField("TC_avg_min", QVariant.Double, "double", 10, 2))
-        
-        # Add method-specific fields
-        for method_id in self.selected_methods:
-            method_name = self.methods[method_id].name.replace('/', '_')
-            new_fields.append(QgsField(f"TC_{method_name}", QVariant.Double, "double", 10, 2))
-            
-        output_provider.addAttributes(new_fields)
-        output_layer.updateFields()
-        
-        # Add features with TC values
-        output_features = []
-        
-        for orig_feature in subbasin_layer.getFeatures():
-            subbasin_id = orig_feature[subbasin_field]
-            
-            new_feature = QgsFeature()
-            new_feature.setGeometry(orig_feature.geometry())
-            
-            # Copy original attributes
-            attributes = list(orig_feature.attributes())
-            
-            # Add TC data if available
-            if subbasin_id in results:
-                data = results[subbasin_id]
-                tc_values = [result['tc_minutes'] for result in data['tc_results'].values()]
-                
-                # General TC data
-                attributes.extend([
-                    data['length_ft'],
-                    data['slope_percent'],
-                    min(tc_values) if tc_values else None,
-                    max(tc_values) if tc_values else None,
-                    sum(tc_values)/len(tc_values) if tc_values else None
-                ])
-                
-                # Method-specific data
-                for method_id in self.selected_methods:
-                    if method_id in data['tc_results']:
-                        attributes.append(data['tc_results'][method_id]['tc_minutes'])
-                    else:
-                        attributes.append(None)
-            else:
-                # No data for this subbasin
-                attributes.extend([None] * (5 + len(self.selected_methods)))
-                
-            new_feature.setAttributes(attributes)
-            output_features.append(new_feature)
-            
-        output_provider.addFeatures(output_features)
-        
-        # Save shapefile
-        shp_path = os.path.join(output_dir, "subbasins_tc.shp")
-        write_options = QgsVectorFileWriter.SaveVectorOptions()
-        write_options.driverName = "ESRI Shapefile"
-        write_options.fileEncoding = "UTF-8"
-        
-        error = QgsVectorFileWriter.writeAsVectorFormatV3(
-            output_layer, shp_path, QgsProject.instance().transformContext(), write_options
-        )
-        
-        if error[0] != QgsVectorFileWriter.NoError:
-            raise ValueError(f"Error saving shapefile: {error[1]}")
-            
         # Save detailed CSV
-        self.save_detailed_csv(results, output_dir)
-        
-        self.progress_logger.log(f"Outputs saved to {output_dir}")
-        
-    def save_detailed_csv(self, results: Dict, output_dir: str):
-        """Save detailed TC calculation results to CSV"""
-        csv_path = os.path.join(output_dir, "tc_calculations_detailed.csv")
+        csv_path = os.path.join(output_dir, "tc_calculations.csv")
         
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             
             # Header
-            header = ['Subbasin_ID', 'Length_ft', 'Slope_percent']
+            header = ['Subbasin_ID', 'Segment_Count', 'Total_Length_ft', 'Avg_Slope_pct',
+                     'TC_Segment_min']
             for method_id in self.selected_methods:
-                method_name = self.methods[method_id].name
-                header.extend([f'{method_name}_minutes', f'{method_name}_hours'])
-            header.extend(['Min_TC_minutes', 'Max_TC_minutes', 'Avg_TC_minutes'])
-            
+                header.append(f'TC_{self.methods[method_id].name}_min')
             writer.writerow(header)
             
             # Data rows
             for subbasin_id, data in results.items():
-                row = [subbasin_id, round(data['length_ft'], 2), round(data['slope_percent'], 3)]
-                
-                tc_values = []
+                row = [
+                    subbasin_id,
+                    data['segment_count'],
+                    round(data['total_length_ft'], 1),
+                    round(data['avg_slope_pct'], 3),
+                    round(data['tc_segment_min'], 2)
+                ]
                 for method_id in self.selected_methods:
-                    if method_id in data['tc_results']:
-                        tc_min = data['tc_results'][method_id]['tc_minutes']
-                        tc_hr = data['tc_results'][method_id]['tc_hours']
-                        row.extend([round(tc_min, 2), round(tc_hr, 3)])
-                        tc_values.append(tc_min)
+                    if method_id in data['comparison_methods']:
+                        row.append(round(data['comparison_methods'][method_id]['tc_minutes'], 2))
                     else:
-                        row.extend([None, None])
-                        
-                # Summary stats
-                if tc_values:
-                    row.extend([
-                        round(min(tc_values), 2),
-                        round(max(tc_values), 2), 
-                        round(sum(tc_values)/len(tc_values), 2)
-                    ])
-                else:
-                    row.extend([None, None, None])
-                    
+                        row.append(None)
                 writer.writerow(row)
-                
+        
+        # Save segment details
+        detail_path = os.path.join(output_dir, "tc_segment_details.csv")
+        
+        with open(detail_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Subbasin_ID', 'Flow_Type', 'Length_ft', 'Slope_pct', 
+                            'Mannings_n', 'Travel_Time_min'])
+            
+            for subbasin_id, data in results.items():
+                for seg in data['segments']:
+                    writer.writerow([
+                        subbasin_id,
+                        seg['flow_type'],
+                        round(seg['length_ft'], 1),
+                        round(seg['slope_pct'], 3),
+                        round(seg['mannings_n'], 3),
+                        round(seg['travel_time_min'], 2)
+                    ])
+                    
+        self.progress_logger.log(f"Outputs saved to {output_dir}")
+        
     def show_completion_dialog(self, results: dict, output_dir: str):
         """Show completion dialog with results summary"""
         processed_count = len(results)
-        method_names = [self.methods[m].name for m in self.selected_methods]
         
         message = f"""
 Time of Concentration Calculation Completed!
 
 Results Summary:
 - Processed {processed_count} subbasins
-- Methods used: {', '.join(method_names)}
+- Primary method: TR-55 Segment-Based Travel Times
+- Comparison methods: {', '.join([self.methods[m].name for m in self.selected_methods])}
 - Outputs saved to: {output_dir}
 
 Output Files:
-- subbasins_tc.shp - Shapefile with TC fields
-- tc_calculations_detailed.csv - Detailed results
-
-Would you like to load the results into QGIS?
+- tc_calculations.csv - TC summary by subbasin
+- tc_segment_details.csv - Individual segment travel times
 """
         
-        reply = QMessageBox.question(
-            self.gui_widget,
-            "Calculation Complete",
-            message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
-        
-        if reply == QMessageBox.Yes:
-            # Load result layer into QGIS
-            shp_path = os.path.join(output_dir, "subbasins_tc.shp")
-            result_layer = QgsVectorLayer(shp_path, "Subbasins with TC", "ogr")
-            QgsProject.instance().addMapLayer(result_layer)
-            self.progress_logger.log("Results loaded into QGIS project", "success")
+        QMessageBox.information(self.gui_widget, "Calculation Complete", message)

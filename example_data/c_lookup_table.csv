@@ -1,50 +1,32 @@
-Land_Use,Description,C_Flat_0_2,C_Rolling_2_6,C_Steep_6_Plus
-OPEN_SPACE_GOOD,Open space - good condition (grass >75%),0.10,0.15,0.20
-OPEN_SPACE_FAIR,Open space - fair condition (grass 50-75%),0.15,0.20,0.25
-OPEN_SPACE_POOR,Open space - poor condition (grass <50%),0.20,0.25,0.30
-LAWN_SANDY,Lawns - sandy soil,0.05,0.10,0.15
-LAWN_CLAY,Lawns - heavy/clay soil,0.13,0.17,0.22
-IMPERVIOUS,Impervious surfaces (pavement/roofs),0.95,0.95,0.95
-WATER,Open water,1.00,1.00,1.00
-WOODS_DENSE,Woods/forest - dense,0.05,0.08,0.11
-WOODS_SPARSE,Woods/forest - sparse,0.10,0.15,0.20
-BRUSH_SPARSE,Brush/shrub - sparse,0.15,0.20,0.25
-BRUSH_DENSE,Brush/shrub - dense,0.08,0.12,0.16
-MEADOW,Meadow/grassland,0.10,0.16,0.22
-PASTURE,Pasture/grazing,0.12,0.18,0.24
-CULTIVATED_SANDY,Cultivated land - sandy soil,0.20,0.25,0.30
-CULTIVATED_CLAY,Cultivated land - clay soil,0.30,0.35,0.40
-ROW_CROP,Row crops,0.35,0.40,0.45
-GRAIN_CROP,Grain crops,0.20,0.25,0.30
-FALLOW_BARE,Fallow - bare soil,0.45,0.50,0.55
-RES_SINGLE_FAM,Residential - single family,0.30,0.40,0.50
-RES_MULTI_FAM,Residential - multi-family,0.50,0.55,0.60
-RES_RURAL,Residential - rural/estate lots,0.20,0.25,0.30
-RES_SUBURBAN,Residential - suburban,0.35,0.40,0.45
-RES_URBAN,Residential - urban/attached,0.55,0.60,0.65
-COMMERCIAL_DOWNTOWN,Commercial - downtown/CBD,0.85,0.90,0.95
-COMMERCIAL_NEIGHBORHOOD,Commercial - neighborhood,0.60,0.65,0.70
-COMMERCIAL_STRIP,Commercial - strip development,0.70,0.75,0.80
-INDUSTRIAL_LIGHT,Industrial - light,0.60,0.65,0.70
-INDUSTRIAL_HEAVY,Industrial - heavy,0.70,0.75,0.80
-PARKING_PAVED,Paved parking/drives,0.95,0.95,0.95
-PARKING_GRAVEL,Gravel parking/drives,0.50,0.55,0.60
-STREETS_ASPHALT,Streets - asphalt,0.85,0.90,0.95
-STREETS_CONCRETE,Streets - concrete,0.90,0.92,0.95
-STREETS_BRICK,Streets - brick/paver,0.75,0.80,0.85
-STREETS_GRAVEL,Streets - gravel,0.35,0.40,0.45
-STREETS_DIRT,Streets - dirt/earth,0.30,0.35,0.40
-ROOFS_FLAT,Rooftops - flat,0.90,0.90,0.90
-ROOFS_METAL,Rooftops - metal,0.95,0.95,0.95
-SIDEWALK,Sidewalks/walkways,0.85,0.90,0.95
-PARK_URBAN,Urban parks,0.15,0.20,0.25
-PARK_PLAYGROUNDS,Playgrounds,0.25,0.30,0.35
-GOLF_FAIRWAY,Golf course - fairways,0.10,0.15,0.20
-GOLF_ROUGH,Golf course - rough,0.15,0.20,0.25
-CEMETERY,Cemeteries,0.15,0.20,0.25
-WETLAND,Wetlands,0.05,0.08,0.10
-POND,Ponds/retention,0.00,0.00,0.00
-RAILROAD,Railroad yards,0.30,0.35,0.40
-AIRPORT,Airports,0.60,0.65,0.70
-UNDEVELOPED_SANDY,Undeveloped - sandy soil,0.10,0.15,0.20
-UNDEVELOPED_CLAY,Undeveloped - clay soil,0.20,0.25,0.30
+landuse,description,a_0-2%,a_2-6%,a_6%+,b_0-2%,b_2-6%,b_6%+,c_0-2%,c_2-6%,c_6%+,d_0-2%,d_2-6%,d_6%+
+OPEN_SPACE_GOOD,Open space - good condition,0.08,0.13,0.18,0.10,0.15,0.20,0.12,0.17,0.22,0.15,0.20,0.25
+OPEN_SPACE_FAIR,Open space - fair condition,0.13,0.18,0.23,0.15,0.20,0.25,0.18,0.23,0.28,0.20,0.25,0.30
+OPEN_SPACE_POOR,Open space - poor condition,0.18,0.23,0.28,0.20,0.25,0.30,0.23,0.28,0.33,0.25,0.30,0.35
+IMPERVIOUS,Impervious surfaces,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95
+WATER,Open water,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00,1.00
+WOODS_GOOD,Woods - good condition,0.04,0.07,0.10,0.05,0.08,0.11,0.07,0.10,0.13,0.08,0.11,0.14
+WOODS_FAIR,Woods - fair condition,0.07,0.11,0.15,0.10,0.14,0.18,0.12,0.16,0.20,0.14,0.18,0.22
+WOODS_POOR,Woods - poor condition,0.12,0.16,0.20,0.15,0.19,0.23,0.18,0.22,0.26,0.20,0.24,0.28
+BRUSH_GOOD,Brush/shrub - good,0.08,0.12,0.16,0.10,0.14,0.18,0.12,0.16,0.20,0.15,0.19,0.23
+BRUSH_FAIR,Brush/shrub - fair,0.12,0.17,0.22,0.15,0.20,0.25,0.18,0.23,0.28,0.20,0.25,0.30
+MEADOW,Meadow/grassland,0.08,0.14,0.20,0.10,0.16,0.22,0.12,0.18,0.24,0.14,0.20,0.26
+PASTURE_GOOD,Pasture - good condition,0.10,0.16,0.22,0.12,0.18,0.24,0.15,0.21,0.27,0.18,0.24,0.30
+PASTURE_FAIR,Pasture - fair condition,0.14,0.20,0.26,0.16,0.22,0.28,0.20,0.26,0.32,0.24,0.30,0.36
+ROW_CROP_GOOD_SR,Row crops - straight row good,0.18,0.23,0.28,0.20,0.25,0.30,0.28,0.33,0.38,0.32,0.37,0.42
+ROW_CROP_GOOD_CR,Row crops - contoured good,0.15,0.20,0.25,0.17,0.22,0.27,0.22,0.27,0.32,0.27,0.32,0.37
+FALLOW_BARE,Fallow - bare soil,0.40,0.45,0.50,0.45,0.50,0.55,0.50,0.55,0.60,0.55,0.60,0.65
+RES_1_8_AC,Residential 1/8 acre (65% imperv),0.55,0.60,0.65,0.58,0.63,0.68,0.62,0.67,0.72,0.65,0.70,0.75
+RES_1_4_AC,Residential 1/4 acre (38% imperv),0.28,0.38,0.48,0.30,0.40,0.50,0.35,0.45,0.55,0.40,0.50,0.60
+RES_1_3_AC,Residential 1/3 acre (30% imperv),0.25,0.35,0.45,0.28,0.38,0.48,0.32,0.42,0.52,0.36,0.46,0.56
+RES_1_2_AC,Residential 1/2 acre (25% imperv),0.22,0.32,0.42,0.25,0.35,0.45,0.30,0.40,0.50,0.35,0.45,0.55
+RES_1_AC,Residential 1 acre (20% imperv),0.18,0.28,0.38,0.22,0.32,0.42,0.26,0.36,0.46,0.30,0.40,0.50
+RES_2_AC,Residential 2 acre (12% imperv),0.14,0.22,0.30,0.17,0.25,0.33,0.20,0.28,0.36,0.24,0.32,0.40
+COMMERCIAL,Commercial (85% imperv),0.82,0.87,0.92,0.85,0.90,0.95,0.87,0.92,0.95,0.90,0.93,0.95
+INDUSTRIAL,Industrial (72% imperv),0.58,0.63,0.68,0.62,0.67,0.72,0.68,0.73,0.78,0.72,0.77,0.82
+PARKING_PAVED,Paved parking,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95,0.95
+STREETS_PAVED,Paved streets,0.85,0.90,0.95,0.88,0.92,0.95,0.90,0.93,0.95,0.92,0.95,0.95
+STREETS_GRAVEL,Gravel streets,0.32,0.37,0.42,0.35,0.40,0.45,0.40,0.45,0.50,0.45,0.50,0.55
+STREETS_DIRT,Dirt streets,0.28,0.33,0.38,0.30,0.35,0.40,0.35,0.40,0.45,0.40,0.45,0.50
+URBAN_OPEN,Urban parks/golf,0.12,0.17,0.22,0.15,0.20,0.25,0.18,0.23,0.28,0.22,0.27,0.32
+WETLAND,Wetlands,0.05,0.08,0.10,0.05,0.08,0.10,0.05,0.08,0.10,0.05,0.08,0.10
+FARMSTEAD,Farmsteads,0.35,0.42,0.50,0.40,0.47,0.55,0.45,0.52,0.60,0.50,0.57,0.65
