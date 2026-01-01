@@ -1,0 +1,11 @@
+Watershed_ID,Watershed_Name,Flow_Length_ft,Slope_Percent,Surface_Type,Mannings_n,CN,C_Value,Description
+WS-001,North Residential,2450,3.2,MIXED,0.030,75,0.40,Sheet + shallow concentrated flow
+WS-002,Commercial Center,1850,1.5,PAVED,0.015,92,0.75,Mostly impervious - parking to outfall
+WS-003,South Woods,4200,8.5,WOODS,0.400,55,0.10,Natural forested watershed
+WS-004,Industrial Park,2100,2.1,MIXED,0.025,88,0.65,Industrial site drainage
+WS-005,East Farms,5500,4.5,CULTIVATED,0.150,74,0.35,Agricultural drainage - long flow path
+WS-006,Meadow Creek,3100,2.8,GRASS,0.150,58,0.15,Natural meadow drainage
+WS-007,Highway Corridor,1200,1.5,PAVED,0.013,90,0.70,Highway drainage - short intense
+WS-008,New Development,2800,3.8,MIXED,0.030,72,0.38,Proposed residential drainage
+WS-009,School Campus,1650,1.2,MIXED,0.025,85,0.55,School campus drainage
+WS-010,Outfall Wetland,800,0.3,WETLAND,0.100,78,0.08,Wetland flow-through

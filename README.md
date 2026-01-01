@@ -240,6 +240,24 @@ exec(open(r'C:\path\to\hydro-suite-standalone\launch_hydro_suite.py').read())
 | [CHANGELOG.md](CHANGELOG.md) | Version history |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guidelines |
 | [HANDOFF_GUI_STYLES.md](HANDOFF_GUI_STYLES.md) | GUI theming implementation details |
+| [example_data/README.md](example_data/README.md) | Lookup tables and example data documentation |
+
+---
+
+## Example Data and Lookup Tables
+
+The `example_data/` folder contains reference tables and sample data:
+
+| File | Description |
+|------|-------------|
+| `cn_lookup_table.csv` | Curve Number by Land Use and HSG (TR-55) |
+| `cn_lookup_split_hsg.csv` | CN with dual HSG support (A/D, B/D, C/D) |
+| `c_lookup_table.csv` | Rational C by Land Use and Slope (ASCE) |
+| `example_subbasins.csv` | Sample watershed/subbasin data |
+| `example_channels.csv` | Sample channel design parameters |
+| `example_tc_flowpaths.csv` | Sample TC flow path data |
+
+See [example_data/README.md](example_data/README.md) for detailed documentation and references.
 
 ---
 

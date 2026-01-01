@@ -1,0 +1,9 @@
+Channel_ID,Name,Bottom_Width_ft,Side_Slope_H_V,Depth_ft,Mannings_n,Slope_ft_ft,Description
+CH-001,Main Outfall Channel,8.0,2.0,4.0,0.035,0.005,Primary outfall - grass lined
+CH-002,North Collector,4.0,2.0,2.5,0.035,0.008,Secondary channel - grass lined
+CH-003,Concrete Swale,3.0,1.5,1.5,0.015,0.010,Concrete lined swale
+CH-004,Rip-Rap Channel,6.0,2.0,3.0,0.040,0.015,Rip-rap lined channel
+CH-005,Natural Stream,10.0,2.5,3.5,0.045,0.003,Existing natural channel
+CH-006,Highway Ditch,4.0,3.0,2.0,0.030,0.012,SCDOT standard ditch
+CH-007,Parking Lot Swale,2.0,4.0,1.0,0.025,0.015,Bioswale - parking lot
+CH-008,Wetland Channel,12.0,4.0,2.0,0.050,0.001,Low gradient wetland channel

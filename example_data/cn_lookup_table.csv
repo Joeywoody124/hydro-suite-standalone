@@ -1,0 +1,40 @@
+Land_Use,Description,HSG_A,HSG_B,HSG_C,HSG_D
+OPEN_SPACE_GOOD,Open space - good condition (grass cover >75%),39,61,74,80
+OPEN_SPACE_FAIR,Open space - fair condition (grass cover 50-75%),49,69,79,84
+OPEN_SPACE_POOR,Open space - poor condition (grass cover <50%),68,79,86,89
+IMPERVIOUS,Impervious areas (pavement/roofs),98,98,98,98
+WATER,Open water,100,100,100,100
+WOODS_GOOD,Woods - good condition,30,55,70,77
+WOODS_FAIR,Woods - fair condition,36,60,73,79
+WOODS_POOR,Woods - poor condition,45,66,77,83
+BRUSH_GOOD,Brush/shrub - good condition,30,48,65,73
+BRUSH_FAIR,Brush/shrub - fair condition,35,56,70,77
+BRUSH_POOR,Brush/shrub - poor condition,48,67,77,83
+MEADOW,Meadow - continuous grass,30,58,71,78
+PASTURE_GOOD,Pasture/grassland - good condition,39,61,74,80
+PASTURE_FAIR,Pasture/grassland - fair condition,49,69,79,84
+PASTURE_POOR,Pasture/grassland - poor condition,68,79,86,89
+ROW_CROP_GOOD_SR,Row crops - straight row good condition,63,74,82,85
+ROW_CROP_GOOD_CR,Row crops - contoured good condition,61,72,79,82
+ROW_CROP_POOR_SR,Row crops - straight row poor condition,72,81,88,91
+ROW_CROP_POOR_CR,Row crops - contoured poor condition,70,79,84,88
+SMALL_GRAIN_GOOD_SR,Small grain - straight row good condition,61,72,79,82
+SMALL_GRAIN_GOOD_CR,Small grain - contoured good condition,59,70,78,81
+SMALL_GRAIN_POOR_SR,Small grain - straight row poor condition,65,76,84,88
+FALLOW_BARE,Fallow - bare soil,77,86,91,94
+FALLOW_CR,Fallow - crop residue cover,74,83,88,90
+RES_1_8_AC,Residential 1/8 acre lots (65% impervious),77,85,90,92
+RES_1_4_AC,Residential 1/4 acre lots (38% impervious),61,75,83,87
+RES_1_3_AC,Residential 1/3 acre lots (30% impervious),57,72,81,86
+RES_1_2_AC,Residential 1/2 acre lots (25% impervious),54,70,80,85
+RES_1_AC,Residential 1 acre lots (20% impervious),51,68,79,84
+RES_2_AC,Residential 2 acre lots (12% impervious),46,65,77,82
+COMMERCIAL,Commercial/business (85% impervious),89,92,94,95
+INDUSTRIAL,Industrial (72% impervious),81,88,91,93
+PARKING_PAVED,Paved parking lots/plazas,98,98,98,98
+STREETS_PAVED,Streets/roads - paved with curbs,98,98,98,98
+STREETS_GRAVEL,Streets/roads - gravel,76,85,89,91
+STREETS_DIRT,Streets/roads - dirt,72,82,87,89
+URBAN_OPEN,Urban open space (parks/golf courses),39,61,74,80
+WETLAND,Wetlands,78,78,78,78
+FARMSTEAD,Farmsteads - buildings/driveways,59,74,82,86

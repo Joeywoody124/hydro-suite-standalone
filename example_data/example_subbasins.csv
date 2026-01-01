@@ -1,0 +1,31 @@
+Subbasin_ID,Subbasin_Name,Land_Use,HSG,Area_Acres,Area_SqFt,Slope_Percent,Description
+SB-001,North Residential,RES_1_4_AC,B,12.5,544500,3.2,Single family residential - 1/4 acre lots
+SB-001,North Residential,STREETS_PAVED,B,1.8,78408,2.5,Local streets with curb and gutter
+SB-001,North Residential,OPEN_SPACE_GOOD,B,2.2,95832,4.1,Common area/park
+SB-002,Commercial Center,COMMERCIAL,C,8.3,361548,1.5,Strip mall and retail
+SB-002,Commercial Center,PARKING_PAVED,C,4.2,182952,1.2,Paved parking areas
+SB-002,Commercial Center,OPEN_SPACE_FAIR,C,0.8,34848,2.0,Landscaped islands
+SB-003,South Woods,WOODS_GOOD,A,45.0,1960200,8.5,Undeveloped forested area
+SB-003,South Woods,BRUSH_FAIR,A,12.3,535788,7.2,Transitional brush area
+SB-003,South Woods,WETLAND,D,3.5,152460,0.5,Riparian wetland buffer
+SB-004,Industrial Park,INDUSTRIAL,C,15.6,679536,2.1,Light industrial warehouse
+SB-004,Industrial Park,PARKING_PAVED,C,6.8,296208,1.8,Truck court and parking
+SB-004,Industrial Park,OPEN_SPACE_POOR,C,1.2,52272,2.5,Unmaintained grass areas
+SB-005,East Farms,ROW_CROP_GOOD_SR,B,85.0,3702600,4.5,Cultivated farmland - corn/soybeans
+SB-005,East Farms,PASTURE_GOOD,B,22.0,958320,5.2,Grazing pasture
+SB-005,East Farms,FARMSTEAD,B,3.5,152460,3.0,Farm buildings and drives
+SB-006,Meadow Creek,MEADOW,A,18.5,805860,2.8,Natural meadow
+SB-006,Meadow Creek,WOODS_FAIR,B,8.2,357192,6.3,Mixed hardwood stand
+SB-006,Meadow Creek,WATER,D,1.2,52272,0.0,Existing pond
+SB-007,Highway Corridor,STREETS_PAVED,C,5.5,239580,1.5,State highway ROW
+SB-007,Highway Corridor,OPEN_SPACE_FAIR,C,3.8,165528,3.2,Highway right-of-way grass
+SB-007,Highway Corridor,COMMERCIAL,C,2.1,91476,2.0,Gas station/convenience
+SB-008,New Development,RES_1_3_AC,B,28.0,1219680,3.8,Proposed subdivision phase 1
+SB-008,New Development,STREETS_PAVED,B,4.5,196020,3.5,Proposed streets
+SB-008,New Development,URBAN_OPEN,B,5.2,226512,4.2,Proposed park and stormwater
+SB-009,School Campus,IMPERVIOUS,C,4.8,209088,1.2,School buildings
+SB-009,School Campus,PARKING_PAVED,C,2.5,108900,1.0,Parking lots
+SB-009,School Campus,OPEN_SPACE_GOOD,C,8.5,370260,2.5,Athletic fields and lawn
+SB-010,Outfall Wetland,WETLAND,D,6.8,296208,0.3,Treatment wetland
+SB-010,Outfall Wetland,OPEN_SPACE_GOOD,C,2.2,95832,1.5,Buffer area
+SB-010,Outfall Wetland,WATER,D,0.8,34848,0.0,Forebay pond
