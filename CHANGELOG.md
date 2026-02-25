@@ -5,6 +5,40 @@ All notable changes to Hydro Suite Standalone will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.1] - 2025-02-24
+
+### Bug Fixes
+
+#### CN Calculator - CRITICAL: Area Discrepancy After Intersections Fixed (v2.3)
+
+- **FIXED: Intersection areas not matching dissolved subbasin areas**
+  - Root cause: No geometry repair before/after spatial overlay operations
+  - Sliver polygons and topology artifacts from input layer differences accumulated area error (observed 15+ acre discrepancies)
+  - **Fix**: Added `fix_geometries()` (QGIS `native:fixgeometries`, Structure method) at three pipeline stages:
+    1. After reprojection of each input layer
+    2. After first intersection (land use × soils)
+    3. After second intersection (subbasins × land use/soils)
+  - **Additional**: Degenerate sliver features (< 1 sq ft) filtered out during CN accumulation
+  - **Validation**: Reference area vs. post-intersection area logged, written to summary CSV, and shown in completion dialog
+
+#### CN Calculator - NEW: Integer CN Output
+
+- **Added `CN_Int` field** (rounded integer) alongside `CN_Comp` (decimal) in all outputs:
+  - Shapefile: new `CN_Int` integer attribute field
+  - Summary CSV: new `CN_Integer` column
+  - Detailed CSV: integer CN shown in subbasin header rows
+  - Summary CSV footer: area validation block (reference area, intersection area, difference)
+
+### Technical Details
+- `cn_calculator_tool.py` updated to v2.3
+- New method: `fix_geometries()` — wraps `native:fixgeometries` with METHOD=1
+- New method: `_calculate_total_layer_area()` — sums geometry areas for validation
+- Sliver threshold: features with `area < 1.0 sq ft` skipped
+- Area warning threshold: > 1% difference triggers log warning
+- No changes to launch script or other tools — runner scripts remain compatible
+
+---
+
 ## [2.5.0] - 2025-01-14
 
 ### Bug Fixes
@@ -375,6 +409,8 @@ Test case (Area 1 from user data):
 
 | Version | Date | Description |
 |---------|------|-------------|
+| 2.5.1 | 2025-02-24 | CN Calculator area fix, geometry repair, integer CN output |
+| 2.5.0 | 2025-01-14 | TC Calculator SCS Lag slope units corrected |
 | 2.4.0 | 2025-01-08 | TC Calculator DEM Extraction fully integrated into GUI |
 | 2.3.0 | 2025-01-02 | DEM Extraction module created (dem_extraction.py) |
 | 2.2.0 | 2025-01-01 | TC Calculator Manual Entry Mode (no flowpath layer required) |
