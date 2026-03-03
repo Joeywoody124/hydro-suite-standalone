@@ -1,7 +1,7 @@
 # HANDOFF: Hydro Suite Standalone - v2.5.0
 
 **Date**: February 2025
-**Author**: Joey Woody, PE - J. Bragg Consulting Inc.
+**Author**: JMW
 **Status**: ✅ UPDATED - CN Calculator Area Fix + Integer CN Output
 **Repository**: https://github.com/Joeywoody124/hydro-suite-standalone
 
