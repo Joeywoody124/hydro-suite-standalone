@@ -446,8 +446,9 @@ class SCSLagDEMCalculator:
             result['warnings'].append("Retention term ≤ 0. Using minimum value.")
         
         # Calculate lag (hours)
+        # Per NRCS NEH Part 630 Chapter 15, Y is slope in PERCENT (not ft/ft).
         if slope_pct > 0 and length_ft > 0:
-            lag_hr = ((length_ft ** 0.8) * (s_retention ** 0.7)) / (1900.0 * ((slope_pct / 100.0) ** 0.5))
+            lag_hr = ((length_ft ** 0.8) * (s_retention ** 0.7)) / (1900.0 * (slope_pct ** 0.5))
         else:
             lag_hr = 0.0
             result['valid'] = False

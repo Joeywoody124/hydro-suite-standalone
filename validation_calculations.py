@@ -86,14 +86,17 @@ def faa_tc(length_ft: float, slope_pct: float, c_value: float = 0.3) -> float:
 
 
 def scs_lag_tc(length_ft: float, slope_pct: float, cn: float = 75) -> float:
-    """SCS/NRCS Lag Method - returns TC in minutes"""
+    """SCS/NRCS Lag Method - returns TC in minutes
+
+    Per NRCS NEH Part 630 Chapter 15, slope Y is used in PERCENT directly
+    (not ft/ft). Using ft/ft here produces results ~10x too high.
+    """
     if length_ft <= 0 or slope_pct <= 0:
         return 0.0
-    slope_ftft = slope_pct / 100.0
     storage_term = (1000.0 / cn) - 9.0
     if storage_term <= 0:
         storage_term = 0.1
-    lag_hours = ((length_ft ** 0.8) * (storage_term ** 0.7)) / (1900.0 * (slope_ftft ** 0.5))
+    lag_hours = ((length_ft ** 0.8) * (storage_term ** 0.7)) / (1900.0 * (slope_pct ** 0.5))
     return (lag_hours / 0.6) * 60.0
 
 
